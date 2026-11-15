@@ -60,7 +60,8 @@ sealed interface UpdateCheckUiState {
     data class UpToDate(
         val versionName: String,
         val versionCode: Int,
-        val checkedAtMillis: Long
+        val checkedAtMillis: Long,
+        val noPublishedReleasesYet: Boolean = false
     ) : UpdateCheckUiState
 
     @Immutable

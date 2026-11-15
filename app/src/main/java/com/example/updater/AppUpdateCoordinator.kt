@@ -359,7 +359,8 @@ class AppUpdateCoordinator(
                         _uiState.value = UpdateCheckUiState.UpToDate(
                             versionName = currentVersionName,
                             versionCode = currentVersionCode,
-                            checkedAtMillis = System.currentTimeMillis()
+                            checkedAtMillis = System.currentTimeMillis(),
+                            noPublishedReleasesYet = true
                         )
                     }
                     is FetchUpdateResult.Failure -> {

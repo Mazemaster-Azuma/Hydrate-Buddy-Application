@@ -20,7 +20,7 @@ on:
       publish_update:
         description: 'Publish signed APK to GitHub Releases for in-app updates'
         required: false
-        default: false
+        default: true
         type: boolean
 
 permissions:
@@ -242,7 +242,7 @@ jobs:
   build-release-apk:
     name: Build Signed Release APK
     if: >-
-      (github.event_name == 'push' && github.ref_type == 'tag') ||
+      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag')) ||
       (github.event_name == 'workflow_dispatch' && (inputs.build_type == 'release' || inputs.build_type == 'both'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -266,6 +266,13 @@ jobs:
           [ -z "${KEY_ALIAS:-}" ] && MISSING="${MISSING} KEY_ALIAS"
           [ -z "${KEY_PASSWORD:-}" ] && MISSING="${MISSING} KEY_PASSWORD"
 
+          IS_EXPLICIT_RELEASE="false"
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ]; then
+            IS_EXPLICIT_RELEASE="true"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            IS_EXPLICIT_RELEASE="true"
+          fi
+
           if [ -n "$MISSING" ]; then
             {
               echo "### Signed Release APK Build Skipped / Blocked"
@@ -273,12 +280,19 @@ jobs:
               echo "Unsigned release APKs are never built or uploaded."
             } >> "$GITHUB_STEP_SUMMARY"
 
-            echo "::error::Release build requested, but required GitHub Secrets are missing:${MISSING}"
-            exit 1
+            if [ "$IS_EXPLICIT_RELEASE" = "true" ]; then
+              echo "::error::Release build explicitly requested, but required GitHub Secrets are missing:${MISSING}"
+              exit 1
+            else
+              echo "::notice::Skipping automatic release build on main because signing secrets are missing:${MISSING}"
+              echo "ready=false" >> "$GITHUB_OUTPUT"
+              echo "should_publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
 
           SHOULD_PUBLISH="false"
-          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ]; then
+          if [ "${{ github.event_name }}" = "push" ]; then
             SHOULD_PUBLISH="true"
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.publish_update }}" = "true" ]; then
             SHOULD_PUBLISH="true"
@@ -600,11 +614,13 @@ jobs:
                 --repo "$TARGET_REPO" \
                 --target "${{ github.sha }}" \
                 --title "Hydrate Buddy v${VERSION_NAME}" \
+                --latest \
                 --generate-notes
             else
               gh release create "${RELEASE_TAG}" "$APK_FILE" "$META_FILE" \
                 --repo "$TARGET_REPO" \
                 --title "Hydrate Buddy v${VERSION_NAME}" \
+                --latest \
                 --notes "Hydrate Buddy release v${VERSION_NAME} (versionCode ${VERSION_CODE})"
             fi
           fi

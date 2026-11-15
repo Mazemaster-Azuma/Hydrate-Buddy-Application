@@ -679,7 +679,11 @@ fun SettingsScreen(
                                         is UpdateCheckUiState.Checking ->
                                             "Checking for a newer release..."
                                         is UpdateCheckUiState.UpToDate ->
-                                            "You're on the latest version"
+                                            if (st.noPublishedReleasesYet) {
+                                                "No update packages published yet"
+                                            } else {
+                                                "You're on the latest version"
+                                            }
                                         is UpdateCheckUiState.Offline ->
                                             "Offline — turn on Wi-Fi or mobile data to check"
                                         is UpdateCheckUiState.UpdateAvailable ->

@@ -222,11 +222,14 @@ class GitHubUpdateClient(
         repeat(6) {
             val conn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = false
+                useCaches = false
+                defaultUseCaches = false
                 connectTimeout = 10_000
                 readTimeout = readTimeoutMs
                 requestMethod = "GET"
                 setRequestProperty("User-Agent", "HydrateBuddy-Android")
                 setRequestProperty("Accept", acceptHeader)
+                setRequestProperty("Cache-Control", "no-cache")
             }
             val code = conn.responseCode
             if (code == HttpURLConnection.HTTP_MOVED_PERM ||
