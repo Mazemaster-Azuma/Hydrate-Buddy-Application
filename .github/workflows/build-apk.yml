@@ -1,0 +1,194 @@
+name: Build Hydrate Buddy Android APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-debug-apk:
+    name: Build Debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Detect project versions and Android module
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Detect Gradle version from gradle-wrapper.properties
+          GRADLE_VERSION="9.3.1"
+          if [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
+            PARSED_GRADLE=$(grep -E '^distributionUrl=' gradle/wrapper/gradle-wrapper.properties | sed -E 's/.*gradle-([0-9]+\.[0-9]+(\.[0-9]+)?)-.*/\1/' || true)
+            if [ -n "$PARSED_GRADLE" ]; then
+              GRADLE_VERSION="$PARSED_GRADLE"
+            fi
+          fi
+
+          # Detect AGP and Kotlin versions from gradle/libs.versions.toml
+          AGP_VERSION="unknown"
+          KOTLIN_VERSION="unknown"
+          if [ -f "gradle/libs.versions.toml" ]; then
+            PARSED_AGP=$(grep -E '^[[:space:]]*agp[[:space:]]*=' gradle/libs.versions.toml | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
+            PARSED_KOTLIN=$(grep -E '^[[:space:]]*kotlin[[:space:]]*=' gradle/libs.versions.toml | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
+            [ -n "$PARSED_AGP" ] && AGP_VERSION="$PARSED_AGP"
+            [ -n "$PARSED_KOTLIN" ] && KOTLIN_VERSION="$PARSED_KOTLIN"
+          fi
+
+          # Detect Android application module from settings.gradle.kts + module build scripts
+          APP_MODULE=""
+          APP_GRADLE_PATH=""
+          if [ -f "settings.gradle.kts" ]; then
+            CANDIDATES=$(grep -oE 'include\("?:[^")]+?"?\)' settings.gradle.kts | sed -E 's/include\("?:?([^")]+)"?\)/\1/' || true)
+            for mod in $CANDIDATES; do
+              mod_dir="${mod//:/\/}"
+              if [ -f "${mod_dir}/build.gradle.kts" ] && grep -qE 'android\.application|com\.android\.application' "${mod_dir}/build.gradle.kts"; then
+                APP_MODULE="$mod_dir"
+                APP_GRADLE_PATH=":${mod}"
+                break
+              elif [ -f "${mod_dir}/build.gradle" ] && grep -qE 'android\.application|com\.android\.application' "${mod_dir}/build.gradle"; then
+                APP_MODULE="$mod_dir"
+                APP_GRADLE_PATH=":${mod}"
+                break
+              fi
+            done
+          fi
+          if [ -z "$APP_MODULE" ]; then
+            APP_MODULE="app"
+            APP_GRADLE_PATH=":app"
+          fi
+
+          # Detect Java compatibility and choose compatible JDK runtime for AGP + Gradle
+          JDK_VERSION="21"
+          BUILD_FILE="${APP_MODULE}/build.gradle.kts"
+          [ ! -f "$BUILD_FILE" ] && BUILD_FILE="${APP_MODULE}/build.gradle"
+          if [ -f "$BUILD_FILE" ]; then
+            TOOLCHAIN_VER=$(grep -oE 'jvmToolchain\([0-9]+\)' "$BUILD_FILE" | head -n1 | grep -oE '[0-9]+' || true)
+            if [ -n "$TOOLCHAIN_VER" ] && [ "$TOOLCHAIN_VER" -ge 17 ]; then
+              JDK_VERSION="$TOOLCHAIN_VER"
+            fi
+          fi
+
+          # Verify Gradle wrapper files
+          HAS_WRAPPER="false"
+          if [ -f "gradlew" ] && [ -f "gradle/wrapper/gradle-wrapper.jar" ] && [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
+            HAS_WRAPPER="true"
+          fi
+
+          APK_DIR="${APP_MODULE}/build/outputs/apk/debug"
+
+          echo "gradle_version=${GRADLE_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "agp_version=${AGP_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "kotlin_version=${KOTLIN_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "app_module=${APP_MODULE}" >> "$GITHUB_OUTPUT"
+          echo "app_gradle_path=${APP_GRADLE_PATH}" >> "$GITHUB_OUTPUT"
+          echo "jdk_version=${JDK_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "has_wrapper=${HAS_WRAPPER}" >> "$GITHUB_OUTPUT"
+          echo "apk_dir=${APK_DIR}" >> "$GITHUB_OUTPUT"
+
+          echo "Detected configuration:"
+          echo "  Application module : ${APP_GRADLE_PATH}"
+          echo "  JDK version        : ${JDK_VERSION}"
+          echo "  Gradle version     : ${GRADLE_VERSION}"
+          echo "  AGP version        : ${AGP_VERSION}"
+          echo "  Kotlin version     : ${KOTLIN_VERSION}"
+          echo "  Gradle wrapper OK  : ${HAS_WRAPPER}"
+          echo "  APK output dir     : ${APK_DIR}"
+
+      - name: Set up JDK ${{ steps.detect.outputs.jdk_version }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ steps.detect.outputs.jdk_version }}
+
+      - name: Set up Gradle (via wrapper)
+        if: steps.detect.outputs.has_wrapper == 'true'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Gradle (fallback ${{ steps.detect.outputs.gradle_version }})
+        if: steps.detect.outputs.has_wrapper != 'true'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ steps.detect.outputs.gradle_version }}
+
+      - name: Prepare debug signing keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f "debug.keystore" ]; then
+            if [ -f "debug.keystore.base64" ]; then
+              base64 -d debug.keystore.base64 > debug.keystore
+              echo "Restored debug.keystore from debug.keystore.base64"
+            else
+              keytool -genkeypair -v \
+                -keystore debug.keystore \
+                -storepass android \
+                -keypass android \
+                -alias androiddebugkey \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity 10000 \
+                -dname "CN=Android Debug,O=Android,C=US" >/dev/null 2>&1
+              echo "Generated temporary CI debug.keystore"
+            fi
+          fi
+
+      - name: Build Debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          TASK="${{ steps.detect.outputs.app_gradle_path }}:assembleDebug"
+          if [ "${{ steps.detect.outputs.has_wrapper }}" = "true" ]; then
+            chmod +x ./gradlew
+            ./gradlew "$TASK" --no-daemon --stacktrace
+          else
+            echo "::warning::Gradle wrapper files missing; building with setup-gradle (${{ steps.detect.outputs.gradle_version }})."
+            gradle "$TASK" --no-daemon --stacktrace
+          fi
+
+      - name: Verify generated APK output
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK_DIR="${{ steps.detect.outputs.apk_dir }}"
+          if [ ! -d "$APK_DIR" ]; then
+            echo "::error::APK output directory not found: $APK_DIR"
+            exit 1
+          fi
+          APK_FILES=$(find "$APK_DIR" -maxdepth 1 -type f -name "*.apk" | sort)
+          if [ -z "$APK_FILES" ]; then
+            echo "::error::No .apk files produced in $APK_DIR"
+            exit 1
+          fi
+          echo "Generated APK(s):"
+          echo "$APK_FILES"
+          {
+            echo "### Hydrate Buddy APK Build Summary"
+            echo "- **Module**: \`${{ steps.detect.outputs.app_module }}\`"
+            echo "- **JDK**: \`${{ steps.detect.outputs.jdk_version }}\`"
+            echo "- **Gradle**: \`${{ steps.detect.outputs.gradle_version }}\`"
+            echo "- **AGP**: \`${{ steps.detect.outputs.agp_version }}\`"
+            echo "- **Kotlin**: \`${{ steps.detect.outputs.kotlin_version }}\`"
+            echo "- **APK Directory**: \`${APK_DIR}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Hydrate Buddy APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hydrate-Buddy-APK
+          path: ${{ steps.detect.outputs.apk_dir }}/*.apk
+          retention-days: 14
+          if-no-files-found: error
