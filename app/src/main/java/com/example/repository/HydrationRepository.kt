@@ -14,6 +14,9 @@ import com.example.utils.DateUtils
 import com.example.utils.GamificationUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -32,7 +35,18 @@ class HydrationRepository(
     @Volatile
     private var achievementsSeeded = false
 
+    private val _currentDateIsoFlow = MutableStateFlow(DateUtils.todayIso())
+    val currentDateIsoFlow: StateFlow<String> = _currentDateIsoFlow.asStateFlow()
+
     val preferencesFlow: Flow<UserPreferences> = preferencesDataStore.preferencesFlow
+
+    fun refreshCurrentDate(nowMillis: Long = System.currentTimeMillis()): String {
+        val latest = DateUtils.todayIso(nowMillis)
+        if (_currentDateIsoFlow.value != latest) {
+            _currentDateIsoFlow.value = latest
+        }
+        return latest
+    }
 
     fun observeEntriesForDate(dateIso: String): Flow<List<WaterEntryEntity>> =
         waterEntryDao.observeEntriesForDate(dateIso)
@@ -67,6 +81,7 @@ class HydrationRepository(
     }
 
     suspend fun ensureInitialized() = withContext(Dispatchers.IO) {
+        refreshCurrentDate()
         writeMutex.withLock {
             ensureAchievementsSeededLocked()
             val prefs = preferencesDataStore.getCurrentPreferences()
@@ -105,6 +120,7 @@ class HydrationRepository(
             ensureAchievementsSeededLocked()
             val prefs = preferencesDataStore.getCurrentPreferences()
             val today = DateUtils.isoFromTimestamp(nowMillis)
+            refreshCurrentDate(nowMillis)
             val prevTotal = waterEntryDao.getTotalMlForDate(today)
             val safeGoal = prefs.dailyGoalMl.coerceAtLeast(1)
             val prevPct = (prevTotal * 100) / safeGoal
@@ -202,6 +218,7 @@ class HydrationRepository(
     }
 
     suspend fun resetTodayProgress(todayIso: String = DateUtils.todayIso()) = withContext(Dispatchers.IO) {
+        refreshCurrentDate()
         writeMutex.withLock {
             val prefs = preferencesDataStore.getCurrentPreferences()
             waterEntryDao.deleteEntriesForDate(todayIso)

@@ -28,9 +28,12 @@ import com.example.model.DrinkType
 import com.example.model.HistoryPeriod
 import com.example.model.HistoryUiState
 import com.example.model.MeasurementUnit
+import android.app.Notification
+import android.os.PowerManager
 import com.example.model.ThemeMode
 import com.example.notifications.AlarmRingController
 import com.example.notifications.AlarmRingState
+import com.example.notifications.NotificationHelper
 import com.example.repository.HydrationRepository
 import com.example.ui.components.AlarmRingingDialog
 import com.example.ui.screens.AchievementsScreen
@@ -51,13 +54,16 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowPowerManager
 
 @OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -454,6 +460,30 @@ class ExampleRobolectricTest {
             hasTestTag("history_selected_date_label") and hasText("Today", substring = true),
             timeoutMillis = 5000
         )
+    }
+
+    @Test
+    fun `alarm notification configures fullScreenIntent public lockscreen visibility and wakes screen`() {
+        val notification = NotificationHelper.buildAlarmNotification(
+            context = context,
+            userName = "Alex",
+            totalMl = 500,
+            goalMl = 2000,
+            unit = MeasurementUnit.ML,
+            silent = true
+        )
+
+        assertEquals(Notification.CATEGORY_ALARM, notification.category)
+        assertEquals(Notification.VISIBILITY_PUBLIC, notification.visibility)
+        assertNotNull(notification.fullScreenIntent)
+        assertNotNull(notification.contentIntent)
+
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        shadowOf(powerManager).setIsInteractive(false)
+        NotificationHelper.wakeUpScreen(context, durationMillis = 15_000L)
+        val latestWakeLock = ShadowPowerManager.getLatestWakeLock()
+        assertNotNull(latestWakeLock)
+        assertTrue(latestWakeLock.isHeld)
     }
 }
 

@@ -53,6 +53,7 @@ class AppUpdaterTest {
     private lateinit var prefsDataStore: UserPreferencesDataStore
     private lateinit var repository: HydrationRepository
     private lateinit var viewModelStore: ViewModelStore
+    private val testJson = Json { ignoreUnknownKeys = true }
 
     @Before
     fun setup() {
@@ -132,7 +133,7 @@ class AppUpdaterTest {
               "releaseNotes": "Smoother UI"
             }
         """.trimIndent()
-        val parsed = Json { ignoreUnknownKeys = true }.decodeFromString<GitHubUpdateMetadata>(raw)
+        val parsed = testJson.decodeFromString<GitHubUpdateMetadata>(raw)
         assertEquals(108, parsed.versionCode)
         assertEquals("1.0.8", parsed.versionName)
         assertEquals("HydrateBuddy-v1.0.8-release.apk", parsed.apkFileName)

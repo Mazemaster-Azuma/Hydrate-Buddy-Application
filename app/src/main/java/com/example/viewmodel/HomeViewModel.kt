@@ -43,7 +43,7 @@ class HomeViewModel(
     private val repository: HydrationRepository
 ) : ViewModel() {
 
-    private val todayIsoFlow = MutableStateFlow(DateUtils.todayIso())
+    private val todayIsoFlow: StateFlow<String> = repository.currentDateIsoFlow
     private val clockTickFlow = MutableStateFlow(System.currentTimeMillis())
     private val recentMilestoneFlow = MutableStateFlow<Int?>(null)
     private val justLoggedDrinkFlow = MutableStateFlow(false)
@@ -57,14 +57,33 @@ class HomeViewModel(
     val dropletBurstTrigger: StateFlow<Int> = dropletBurstTriggerFlow.asStateFlow()
     val unlockedBannerQueue: StateFlow<List<AchievementEntity>> = unlockedQueueFlow.asStateFlow()
 
+    private var lastObservedDateIso: String = repository.currentDateIsoFlow.value
     private var lastTapMillis: Long = 0L
     private var cheerResetJob: Job? = null
     private var drinkResetJob: Job? = null
 
     init {
         viewModelScope.launch {
+            repository.currentDateIsoFlow.collect { latestIso ->
+                if (latestIso != lastObservedDateIso) {
+                    lastObservedDateIso = latestIso
+                    drinkResetJob?.cancel()
+                    cheerResetJob?.cancel()
+                    justLoggedDrinkFlow.value = false
+                    recentMilestoneFlow.value = null
+                    justTappedCheerFlow.value = false
+                    clockTickFlow.value = System.currentTimeMillis()
+                }
+            }
+        }
+        viewModelScope.launch {
             while (isActive) {
-                delay(60_000L)
+                val now = System.currentTimeMillis()
+                val waitMs = minOf(
+                    DateUtils.millisUntilNextMinute(now),
+                    DateUtils.millisUntilNextMidnight(now)
+                ) + 25L
+                delay(waitMs)
                 refreshDateIfNeeded()
             }
         }
@@ -149,13 +168,9 @@ class HomeViewModel(
             initialValue = HomeUiState.Loading
         )
 
-    fun refreshDateIfNeeded() {
-        val now = System.currentTimeMillis()
-        val currentIso = DateUtils.todayIso(now)
-        if (todayIsoFlow.value != currentIso) {
-            todayIsoFlow.value = currentIso
-        }
-        clockTickFlow.value = now
+    fun refreshDateIfNeeded(nowMillis: Long = System.currentTimeMillis()) {
+        repository.refreshCurrentDate(nowMillis)
+        clockTickFlow.value = nowMillis
     }
 
     fun logWater(amountMl: Int, drinkType: DrinkType = DrinkType.WATER) {
@@ -164,10 +179,7 @@ class HomeViewModel(
         if (now - lastTapMillis < 220L) return
         lastTapMillis = now
 
-        val currentIso = DateUtils.todayIso(now)
-        if (todayIsoFlow.value != currentIso) {
-            todayIsoFlow.value = currentIso
-        }
+        repository.refreshCurrentDate(now)
         clockTickFlow.value = now
         dropletBurstTriggerFlow.value += 1
         justTappedCheerFlow.value = false

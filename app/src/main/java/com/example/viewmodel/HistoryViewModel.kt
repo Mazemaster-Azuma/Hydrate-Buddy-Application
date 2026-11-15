@@ -31,8 +31,23 @@ class HistoryViewModel(
 ) : ViewModel() {
 
     private val selectedPeriodFlow = MutableStateFlow(HistoryPeriod.WEEK)
-    private val selectedDateIsoFlow = MutableStateFlow(DateUtils.todayIso())
-    private val todayIsoFlow = MutableStateFlow(DateUtils.todayIso())
+    private val todayIsoFlow: StateFlow<String> = repository.currentDateIsoFlow
+    private val selectedDateIsoFlow = MutableStateFlow(todayIsoFlow.value)
+    private var lastObservedTodayIso: String = todayIsoFlow.value
+
+    init {
+        viewModelScope.launch {
+            repository.currentDateIsoFlow.collect { latestToday ->
+                if (latestToday != lastObservedTodayIso) {
+                    val wasViewingToday = selectedDateIsoFlow.value == lastObservedTodayIso
+                    lastObservedTodayIso = latestToday
+                    if (wasViewingToday) {
+                        selectedDateIsoFlow.value = latestToday
+                    }
+                }
+            }
+        }
+    }
 
     private val selectedDayEntriesFlow = selectedDateIsoFlow.flatMapLatest { dateIso ->
         repository.observeEntriesForDate(dateIso)
@@ -135,6 +150,7 @@ class HistoryViewModel(
         return HistoryUiState.Success(
             selectedPeriod = period,
             selectedDateIso = selectedDateIso,
+            todayIso = todayIso,
             selectedDateLabel = DateUtils.formatDisplayDate(selectedDateIso),
             isToday = selectedDateIso == todayIso,
             unit = prefs.unit,
@@ -160,15 +176,8 @@ class HistoryViewModel(
         return if (selectedDateIso >= sixDaysAgo) todayIso else selectedDateIso
     }
 
-    fun refreshTodayIfNeeded() {
-        val latestToday = DateUtils.todayIso()
-        val previousToday = todayIsoFlow.value
-        if (latestToday != previousToday) {
-            todayIsoFlow.value = latestToday
-            if (selectedDateIsoFlow.value == previousToday) {
-                selectedDateIsoFlow.value = latestToday
-            }
-        }
+    fun refreshTodayIfNeeded(nowMillis: Long = System.currentTimeMillis()) {
+        repository.refreshCurrentDate(nowMillis)
     }
 
     fun selectPeriod(period: HistoryPeriod) {
@@ -177,8 +186,7 @@ class HistoryViewModel(
     }
 
     fun selectDate(dateIso: String) {
-        val today = DateUtils.todayIso()
-        todayIsoFlow.value = today
+        val today = repository.refreshCurrentDate()
         selectedDateIsoFlow.value = if (dateIso > today) today else dateIso
     }
 

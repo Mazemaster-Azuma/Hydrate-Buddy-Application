@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.example.model.AchievementFilter
 import com.example.model.AchievementsUiState
 import com.example.repository.HydrationRepository
-import com.example.utils.DateUtils
 import com.example.utils.GamificationUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,7 +27,8 @@ class AchievementsViewModel(
         repository.totalXpFlow,
         repository.lifetimeTotalMlFlow,
         repository.preferencesFlow,
-        filterFlow
+        filterFlow,
+        repository.currentDateIsoFlow
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         val allAchievements = values[0] as List<com.example.database.AchievementEntity>
@@ -38,6 +38,7 @@ class AchievementsViewModel(
         val lifetimeTotalMl = values[3] as Int
         val prefs = values[4] as com.example.model.UserPreferences
         val filter = values[5] as AchievementFilter
+        val todayIso = values[6] as String
 
         val filtered = when (filter) {
             AchievementFilter.ALL -> allAchievements
@@ -46,7 +47,7 @@ class AchievementsViewModel(
         }
         val (currentStreak, longestStreak) = GamificationUtils.calculateStreaks(
             allProgress,
-            DateUtils.todayIso()
+            todayIso
         )
 
         AchievementsUiState.Success(

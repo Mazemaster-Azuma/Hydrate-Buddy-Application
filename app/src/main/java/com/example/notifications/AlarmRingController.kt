@@ -41,6 +41,8 @@ object AlarmRingController {
             quickAmountMl = quickAmountMl
         )
 
+        NotificationHelper.wakeUpScreen(context, durationMillis = 20_000L)
+
         val serviceIntent = Intent(context, HydrationAlarmService::class.java).apply {
             putExtra(HydrationAlarmService.EXTRA_USER_NAME, userName)
             putExtra(HydrationAlarmService.EXTRA_TOTAL_ML, totalMl)

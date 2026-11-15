@@ -50,6 +50,7 @@ class HydrationAlarmService : Service() {
             silent = true
         )
         startForeground(NotificationHelper.ALARM_NOTIFICATION_ID, notification)
+        NotificationHelper.wakeUpScreen(this, durationMillis = 30_000L)
 
         startAlarmSound()
         if (vibrationEnabled) {

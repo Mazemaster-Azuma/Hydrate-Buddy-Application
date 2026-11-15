@@ -30,6 +30,23 @@ object DateUtils {
         return fmt.format(getDate(timestampMillis))
     }
 
+    fun millisUntilNextMidnight(nowMillis: Long = System.currentTimeMillis()): Long {
+        val cal = Calendar.getInstance().apply {
+            timeInMillis = nowMillis
+            add(Calendar.DAY_OF_YEAR, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        return (cal.timeInMillis - nowMillis).coerceAtLeast(1L)
+    }
+
+    fun millisUntilNextMinute(nowMillis: Long = System.currentTimeMillis()): Long {
+        val remainder = nowMillis % 60_000L
+        return (60_000L - remainder).coerceAtLeast(1L)
+    }
+
     fun dateIsoOffset(baseIso: String, daysDelta: Int): String {
         val cal = parseIsoToCalendar(baseIso)
         cal.add(Calendar.DAY_OF_YEAR, daysDelta)

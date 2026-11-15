@@ -206,7 +206,7 @@ fun HistoryScreen(
                                 exit = fadeOut() + scaleOut(targetScale = 0.92f)
                             ) {
                                 AssistChip(
-                                    onClick = { viewModel.selectDate(DateUtils.todayIso()) },
+                                    onClick = { viewModel.selectDate(state.todayIso) },
                                     leadingIcon = {
                                         Icon(
                                             imageVector = Icons.Default.Today,
@@ -274,6 +274,7 @@ fun HistoryScreen(
                                 WeeklyChartCard(
                                     points = state.weeklyPoints,
                                     selectedDateIso = state.selectedDateIso,
+                                    todayIso = state.todayIso,
                                     weeklyTotalMl = state.weeklyTotalMl,
                                     weeklyAvgMl = state.weeklyAverageMl,
                                     unit = state.unit,
@@ -289,6 +290,7 @@ fun HistoryScreen(
                                     monthTitle = state.monthTitle,
                                     days = state.monthlyDays,
                                     selectedDateIso = state.selectedDateIso,
+                                    todayIso = state.todayIso,
                                     monthlyTotalMl = state.monthlyTotalMl,
                                     monthlyAverageMl = state.monthlyAverageMl,
                                     goalsMetCount = state.monthlyGoalsMetCount,
@@ -296,7 +298,7 @@ fun HistoryScreen(
                                     onSelectDate = viewModel::selectDate,
                                     onPrevMonth = { viewModel.stepMonth(-1) },
                                     onNextMonth = { viewModel.stepMonth(1) },
-                                    onJumpCurrentMonth = { viewModel.selectDate(DateUtils.todayIso()) }
+                                    onJumpCurrentMonth = { viewModel.selectDate(state.todayIso) }
                                 )
                             }
                         }
@@ -534,6 +536,7 @@ private fun DaySummaryCard(
 private fun WeeklyChartCard(
     points: List<WeeklyBarPoint>,
     selectedDateIso: String,
+    todayIso: String,
     weeklyTotalMl: Int,
     weeklyAvgMl: Int,
     unit: MeasurementUnit,
@@ -546,7 +549,6 @@ private fun WeeklyChartCard(
     val success = LocalHydrateColors.current.success
     val trackColor = LocalHydrateColors.current.waterRingTrack
     val outlineColor = MaterialTheme.colorScheme.outline
-    val todayIso = remember(selectedDateIso) { DateUtils.todayIso() }
     val isCurrentWeek = remember(points, todayIso) {
         points.any { it.dateIso == todayIso }
     }
@@ -759,6 +761,7 @@ private fun MonthlyOverviewCard(
     monthTitle: String,
     days: List<MonthlyHeatmapDay>,
     selectedDateIso: String,
+    todayIso: String,
     monthlyTotalMl: Int,
     monthlyAverageMl: Int,
     goalsMetCount: Int,
@@ -780,7 +783,6 @@ private fun MonthlyOverviewCard(
     val lowCellColor = remember(primary) { primary.copy(alpha = 0.34f) }
     val futureTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
 
-    val todayIso = remember(days, selectedDateIso) { DateUtils.todayIso() }
     val isCurrentMonth = remember(selectedDateIso, todayIso) {
         selectedDateIso.take(7) >= todayIso.take(7)
     }

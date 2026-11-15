@@ -103,6 +103,7 @@ sealed interface HistoryUiState {
     data class Success(
         val selectedPeriod: HistoryPeriod,
         val selectedDateIso: String,
+        val todayIso: String,
         val selectedDateLabel: String,
         val isToday: Boolean,
         val unit: MeasurementUnit,

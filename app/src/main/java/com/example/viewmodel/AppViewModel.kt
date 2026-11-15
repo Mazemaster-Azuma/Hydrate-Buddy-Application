@@ -63,7 +63,12 @@ class AppViewModel(
     }
 
     fun onForegroundResumed() {
+        repository.refreshCurrentDate()
         updateCoordinator.onForegroundResumed()
+    }
+
+    fun onDayOrTimeChanged() {
+        repository.refreshCurrentDate()
     }
 
     fun startAppUpdate() {

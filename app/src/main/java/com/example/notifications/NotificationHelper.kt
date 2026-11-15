@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.os.Build
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -20,8 +21,8 @@ import com.example.model.MeasurementUnit
 import com.example.utils.UnitConverter
 
 object NotificationHelper {
-    const val CHANNEL_ID = "hydrate_reminders_v2"
-    const val ALARM_CHANNEL_ID = "hydrate_alarm_reminders_v2"
+    const val CHANNEL_ID = "hydrate_reminders_v3"
+    const val ALARM_CHANNEL_ID = "hydrate_alarm_reminders_v3"
     const val NOTIFICATION_ID = 1001
     const val ALARM_NOTIFICATION_ID = 1002
 
@@ -31,14 +32,19 @@ object NotificationHelper {
     const val ACTION_STOP_ALARM = "com.example.ACTION_STOP_ALARM"
     const val ACTION_SNOOZE_ALARM = "com.example.ACTION_SNOOZE_ALARM"
     const val EXTRA_AMOUNT_ML = "extra_amount_ml"
+    const val EXTRA_FROM_ALARM_WAKEUP = "extra_from_alarm_wakeup"
+
+    private const val WAKE_LOCK_TAG = "HydrateBuddy:AlarmScreenWakeLock"
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            // Clean up legacy channels so devices receive the custom water chimes
+            // Clean up legacy channels so devices receive public lockscreen visibility & custom water chimes
             manager.deleteNotificationChannel("hydrate_reminders")
             manager.deleteNotificationChannel("hydrate_alarm_reminders")
+            manager.deleteNotificationChannel("hydrate_reminders_v2")
+            manager.deleteNotificationChannel("hydrate_alarm_reminders_v2")
 
             if (manager.getNotificationChannel(CHANNEL_ID) == null) {
                 val dropUri = "android.resource://${context.packageName}/${R.raw.hydrate_water_drop}".toUri()
@@ -50,11 +56,13 @@ object NotificationHelper {
                 val channel = NotificationChannel(
                     CHANNEL_ID,
                     context.getString(R.string.notification_channel_name),
-                    NotificationManager.IMPORTANCE_DEFAULT
+                    NotificationManager.IMPORTANCE_HIGH
                 ).apply {
                     description = context.getString(R.string.notification_channel_desc)
                     setSound(dropUri, dropAttributes)
                     enableVibration(true)
+                    enableLights(true)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 }
                 manager.createNotificationChannel(channel)
             }
@@ -74,9 +82,31 @@ object NotificationHelper {
                     description = "Water-harp alarm chime reminders when Ringing Alarm Mode is enabled."
                     setSound(alarmUri, alarmAttributes)
                     enableVibration(true)
+                    enableLights(true)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                     vibrationPattern = longArrayOf(0L, 450L, 350L, 450L, 850L)
                 }
                 manager.createNotificationChannel(alarmChannel)
+            }
+        }
+    }
+
+    /**
+     * Wakes up the device display when an alarm or hydration reminder triggers while the screen is off,
+     * ensuring the user sees the notification on their lock screen immediately.
+     */
+    @Suppress("DEPRECATION")
+    fun wakeUpScreen(context: Context, durationMillis: Long = 15_000L) {
+        runCatching {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+            if (!powerManager.isInteractive) {
+                val wakeFlags = PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                    PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                    PowerManager.ON_AFTER_RELEASE
+                val wakeLock = powerManager.newWakeLock(wakeFlags, WAKE_LOCK_TAG).apply {
+                    setReferenceCounted(false)
+                }
+                wakeLock.acquire(durationMillis)
             }
         }
     }
@@ -142,7 +172,9 @@ object NotificationHelper {
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(openPendingIntent)
             .setAutoCancel(true)
             .addAction(
@@ -164,6 +196,7 @@ object NotificationHelper {
         }
         try {
             NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+            wakeUpScreen(context, durationMillis = 12_000L)
         } catch (_: SecurityException) {
             // Permission revoked concurrently
         }
@@ -190,7 +223,16 @@ object NotificationHelper {
             "Hydration alarm ringing • Tap to log or stop."
         }
 
-        val openPendingIntent = createOpenAppPendingIntent(context, requestCode = 200)
+        val openPendingIntent = createOpenAppPendingIntent(
+            context = context,
+            requestCode = 200,
+            fromAlarmWakeup = true
+        )
+        val fullScreenPendingIntent = createOpenAppPendingIntent(
+            context = context,
+            requestCode = 204,
+            fromAlarmWakeup = true
+        )
 
         val logAndStopIntent = Intent(context, HydrationNotificationReceiver::class.java).apply {
             action = ACTION_ALARM_QUICK_LOG
@@ -230,10 +272,12 @@ object NotificationHelper {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(true)
             .setAutoCancel(false)
             .setSilent(silent)
             .setContentIntent(openPendingIntent)
+            .setFullScreenIntent(fullScreenPendingIntent, true)
             .setDeleteIntent(stopPendingIntent)
             .addAction(0, "+$quickLabel", logAndStopPendingIntent)
             .addAction(0, "Snooze 10m", snoozePendingIntent)
@@ -258,14 +302,24 @@ object NotificationHelper {
         }
         try {
             NotificationManagerCompat.from(context).notify(ALARM_NOTIFICATION_ID, notification)
+            wakeUpScreen(context, durationMillis = 20_000L)
         } catch (_: SecurityException) {
             // Permission revoked concurrently
         }
     }
 
-    private fun createOpenAppPendingIntent(context: Context, requestCode: Int): PendingIntent {
+    private fun createOpenAppPendingIntent(
+        context: Context,
+        requestCode: Int,
+        fromAlarmWakeup: Boolean = false
+    ): PendingIntent {
         val openAppIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP
+            if (fromAlarmWakeup) {
+                putExtra(EXTRA_FROM_ALARM_WAKEUP, true)
+            }
         }
         return PendingIntent.getActivity(
             context,

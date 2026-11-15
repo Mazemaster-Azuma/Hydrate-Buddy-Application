@@ -1,7 +1,10 @@
 package com.example
 
+import android.content.Intent
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -23,6 +26,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.model.ThemeMode
 import com.example.navigation.HydrateNavHost
+import com.example.notifications.AlarmRingController
+import com.example.notifications.NotificationHelper
 import com.example.notifications.ReminderScheduler
 import com.example.ui.components.AlarmRingingDialog
 import com.example.ui.components.AppUpdateDialog
@@ -35,6 +40,7 @@ import com.example.viewmodel.HydrateViewModelFactory
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleAlarmWakeIntent(intent)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
@@ -53,6 +59,11 @@ class MainActivity : ComponentActivity() {
             val alarmRingState by appViewModel.alarmRingState.collectAsStateWithLifecycle()
             val updateState by appViewModel.updateState.collectAsStateWithLifecycle()
             val lifecycleOwner = LocalLifecycleOwner.current
+
+            DisposableEffect(alarmRingState != null) {
+                applyScreenWakeState(isAlarmRinging = alarmRingState != null)
+                onDispose {}
+            }
 
             DisposableEffect(lifecycleOwner, appViewModel) {
                 val observer = LifecycleEventObserver { _, event ->
@@ -155,6 +166,42 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAlarmWakeIntent(intent)
+    }
+
+    private fun handleAlarmWakeIntent(intent: Intent?) {
+        val fromAlarm = intent?.getBooleanExtra(NotificationHelper.EXTRA_FROM_ALARM_WAKEUP, false) == true
+        val isRinging = AlarmRingController.ringState.value != null
+        if (fromAlarm || isRinging) {
+            NotificationHelper.wakeUpScreen(this, durationMillis = 20_000L)
+            applyScreenWakeState(isAlarmRinging = true)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun applyScreenWakeState(isAlarmRinging: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(isAlarmRinging)
+            setTurnScreenOn(isAlarmRinging)
+        } else {
+            val legacyFlags = WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            if (isAlarmRinging) {
+                window.addFlags(legacyFlags)
+            } else {
+                window.clearFlags(legacyFlags)
+            }
+        }
+        if (isAlarmRinging) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
 }

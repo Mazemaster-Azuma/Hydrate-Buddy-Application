@@ -511,7 +511,8 @@ fun WaterBuddyCanvas(
                             sparkleBoost = true,
                             droopy = false,
                             waterySad = false,
-                            shimmerPhase = secPhase
+                            shimmerPhase = secPhase,
+                            cache = overlayCache
                         )
                     }
                     else -> {
