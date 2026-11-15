@@ -168,6 +168,7 @@ class AppUpdaterTest {
         composeTestRule.onNodeWithTag("settings_list")
             .performScrollToNode(hasTestTag("settings_check_updates_button"))
         composeTestRule.onNodeWithTag("settings_check_updates_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("settings_update_repo").assertDoesNotExist()
         composeTestRule.onNodeWithTag("settings_check_updates_button").performClick()
         composeTestRule.waitForIdle()
 

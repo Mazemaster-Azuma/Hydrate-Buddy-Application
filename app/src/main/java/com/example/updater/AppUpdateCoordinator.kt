@@ -313,7 +313,7 @@ class AppUpdateCoordinator(
                 if (repoSlug.isBlank()) {
                     if (isManual) {
                         _uiState.value = UpdateCheckUiState.Error(
-                            message = "GitHub repository is not configured yet. Tap Repository Source above to set owner/repo.",
+                            message = "Automatic updates are not available in this build.",
                             isManual = true
                         )
                     }

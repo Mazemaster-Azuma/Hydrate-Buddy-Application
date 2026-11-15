@@ -1,8 +1,13 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,6 +62,7 @@ import com.example.database.AchievementEntity
 import com.example.model.AchievementFilter
 import com.example.model.AchievementsUiState
 import com.example.model.LevelInfo
+import com.example.ui.components.pressBounce
 import com.example.ui.theme.LocalHydrateColors
 import com.example.utils.DateUtils
 import com.example.utils.UnitConverter
@@ -119,14 +125,27 @@ fun AchievementsScreen(
                                 colors = listOf(primaryContainer, tertiaryContainer)
                             )
                         }
+                        val levelInteraction = remember { MutableInteractionSource() }
+                        val animatedLevelProgress by animateFloatAsState(
+                            targetValue = state.levelInfo.progressFraction.coerceIn(0f, 1f),
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessLow
+                            ),
+                            label = "level_xp_progress"
+                        )
                         Card(
                             shape = MaterialTheme.shapes.extraLarge,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .pressBounce(levelInteraction, pressedScale = 0.985f)
                                 .clip(MaterialTheme.shapes.extraLarge)
-                                .clickable { showLevelRoadmap = true }
+                                .clickable(
+                                    interactionSource = levelInteraction,
+                                    indication = LocalIndication.current
+                                ) { showLevelRoadmap = true }
                                 .testTag("achievements_level_card")
                         ) {
                             Column(
@@ -185,7 +204,7 @@ fun AchievementsScreen(
                                 }
 
                                 LinearProgressIndicator(
-                                    progress = { state.levelInfo.progressFraction },
+                                    progress = { animatedLevelProgress },
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(10.dp)
@@ -291,7 +310,8 @@ fun AchievementsScreen(
                         ) { achievement ->
                             AchievementItemCard(
                                 achievement = achievement,
-                                onClick = { selectedAchievement = achievement }
+                                onClick = { selectedAchievement = achievement },
+                                modifier = Modifier.animateItem()
                             )
                         }
                     }
@@ -347,17 +367,27 @@ private fun RewardMetricCard(
 @Composable
 private fun AchievementItemCard(
     achievement: AchievementEntity,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val extendedColors = LocalHydrateColors.current
-    val progress = (achievement.progressCurrent.toFloat() / achievement.progressTarget.coerceAtLeast(1))
+    val targetProgress = (achievement.progressCurrent.toFloat() / achievement.progressTarget.coerceAtLeast(1))
         .coerceIn(0f, 1f)
+    val animatedProgress by animateFloatAsState(
+        targetValue = targetProgress,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "achievement_progress_${achievement.id}"
+    )
 
     val unlockedDateText = remember(achievement.unlockedAtMillis) {
         achievement.unlockedAtMillis?.let {
             "Unlocked • ${DateUtils.formatDisplayDate(DateUtils.isoFromTimestamp(it))}"
         }
     }
+    val cardInteraction = remember { MutableInteractionSource() }
 
     Card(
         shape = MaterialTheme.shapes.large,
@@ -368,12 +398,24 @@ private fun AchievementItemCard(
                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
             }
         ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (achievement.isUnlocked) {
+                extendedColors.success.copy(alpha = 0.35f)
+            } else {
+                MaterialTheme.colorScheme.outlineVariant
+            }
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
+            .pressBounce(cardInteraction, pressedScale = 0.985f)
             .clip(MaterialTheme.shapes.large)
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = cardInteraction,
+                indication = LocalIndication.current,
+                onClick = onClick
+            )
             .testTag("achievement_card_${achievement.id}")
     ) {
         Row(
@@ -460,7 +502,7 @@ private fun AchievementItemCard(
                 } else {
                     Spacer(modifier = Modifier.height(2.dp))
                     LinearProgressIndicator(
-                        progress = { progress },
+                        progress = { animatedProgress },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(6.dp)

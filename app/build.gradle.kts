@@ -20,7 +20,11 @@ android {
     val baseVersionCode = 1
     val ciVersionCode = System.getenv("VERSION_CODE")?.trim()?.toIntOrNull()
     val ciVersionName = System.getenv("VERSION_NAME")?.trim()?.takeIf { it.isNotEmpty() }
-    val githubRepo = System.getenv("GITHUB_REPOSITORY")?.trim()?.replace("\"", "") ?: ""
+    val githubRepo = (
+      System.getenv("UPDATE_RELEASE_REPO")?.trim()?.takeIf { it.isNotEmpty() }
+        ?: System.getenv("GITHUB_REPOSITORY")?.trim()
+        ?: ""
+    ).replace("\"", "")
 
     versionCode = maxOf(baseVersionCode, ciVersionCode ?: baseVersionCode)
     versionName = ciVersionName ?: "1.0"

@@ -1,11 +1,22 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -79,6 +90,7 @@ import com.example.ui.components.EditWaterEntryDialog
 import com.example.ui.components.HydrationProgressRing
 import com.example.ui.components.WaterBuddyCanvas
 import com.example.ui.components.WaterDropletBurst
+import com.example.ui.components.pressBounce
 import com.example.ui.theme.LocalHydrateColors
 import com.example.utils.DateUtils
 import com.example.utils.UnitConverter
@@ -268,11 +280,16 @@ private fun HomeDashboardContent(
     modifier: Modifier = Modifier
 ) {
     val extendedColors = LocalHydrateColors.current
+    val animatedTotalMl by animateIntAsState(
+        targetValue = state.totalMl,
+        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+        label = "home_total_intake_anim"
+    )
     val pctDisplay = remember(state.totalMl, state.goalMl) {
         ((state.totalMl.toFloat() / state.goalMl.coerceAtLeast(1)) * 100f).roundToInt()
     }
-    val formattedTotal = remember(state.totalMl, state.unit) {
-        UnitConverter.formatVolume(state.totalMl, state.unit)
+    val formattedTotal = remember(animatedTotalMl, state.unit) {
+        UnitConverter.formatVolume(animatedTotalMl, state.unit)
     }
     val formattedGoal = remember(state.goalMl, state.unit) {
         UnitConverter.formatVolume(state.goalMl, state.unit)
@@ -324,12 +341,19 @@ private fun HomeDashboardContent(
                     }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val streakInteraction = remember { MutableInteractionSource() }
                         Surface(
                             shape = MaterialTheme.shapes.small,
                             color = MaterialTheme.colorScheme.secondaryContainer,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f)),
                             modifier = Modifier
+                                .pressBounce(streakInteraction, pressedScale = 0.94f)
                                 .clip(MaterialTheme.shapes.small)
-                                .clickable(onClick = onNavigateToAchievements)
+                                .clickable(
+                                    interactionSource = streakInteraction,
+                                    indication = LocalIndication.current,
+                                    onClick = onNavigateToAchievements
+                                )
                                 .testTag("home_streak_pill")
                         ) {
                             Row(
@@ -351,12 +375,19 @@ private fun HomeDashboardContent(
                             }
                         }
 
+                        val levelInteraction = remember { MutableInteractionSource() }
                         Surface(
                             shape = MaterialTheme.shapes.small,
                             color = MaterialTheme.colorScheme.tertiaryContainer,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)),
                             modifier = Modifier
+                                .pressBounce(levelInteraction, pressedScale = 0.94f)
                                 .clip(MaterialTheme.shapes.small)
-                                .clickable(onClick = onNavigateToAchievements)
+                                .clickable(
+                                    interactionSource = levelInteraction,
+                                    indication = LocalIndication.current,
+                                    onClick = onNavigateToAchievements
+                                )
                                 .testTag("home_level_pill")
                         ) {
                             Row(
@@ -396,22 +427,35 @@ private fun HomeDashboardContent(
                             .padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Speech bubble
+                        // Speech bubble with smooth animated transitions
                         Surface(
                             shape = MaterialTheme.shapes.medium,
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                            tonalElevation = 1.dp
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
+                            tonalElevation = 1.dp,
+                            modifier = Modifier.animateContentSize()
                         ) {
-                            Text(
-                                text = state.buddyMessage,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier
-                                    .padding(horizontal = 16.dp, vertical = 10.dp)
-                                    .testTag("buddy_status_message")
-                            )
+                            AnimatedContent(
+                                targetState = state.buddyMessage,
+                                transitionSpec = {
+                                    (fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 5 })
+                                        .togetherWith(
+                                            fadeOut(tween(150)) + slideOutVertically(tween(150)) { -it / 5 }
+                                        )
+                                },
+                                label = "buddy_message_transition"
+                            ) { msg ->
+                                Text(
+                                    text = msg,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier
+                                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                                        .testTag("buddy_status_message")
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(14.dp))
@@ -450,13 +494,20 @@ private fun HomeDashboardContent(
                                 modifier = Modifier.testTag("home_total_intake_text")
                             )
                             Spacer(modifier = Modifier.width(6.dp))
+                            val goalInteraction = remember { MutableInteractionSource() }
                             Surface(
                                 shape = MaterialTheme.shapes.small,
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
                                 modifier = Modifier
                                     .padding(bottom = 2.dp)
+                                    .pressBounce(goalInteraction, pressedScale = 0.94f)
                                     .clip(MaterialTheme.shapes.small)
-                                    .clickable(onClick = onOpenGoalEdit)
+                                    .clickable(
+                                        interactionSource = goalInteraction,
+                                        indication = LocalIndication.current,
+                                        onClick = onOpenGoalEdit
+                                    )
                                     .testTag("home_goal_edit_chip")
                             ) {
                                 Row(
@@ -599,23 +650,34 @@ private fun HomeDashboardContent(
                     ) {
                         state.quickAddAmountsMl.forEach { amountMl ->
                             val label = UnitConverter.quickAddButtonLabel(amountMl, state.unit)
+                            val quickInteraction = remember(amountMl) { MutableInteractionSource() }
                             FilledTonalButton(
                                 onClick = { onQuickAdd(amountMl, DrinkType.WATER) },
+                                interactionSource = quickInteraction,
                                 shape = MaterialTheme.shapes.medium,
                                 contentPadding = PaddingValues(vertical = 14.dp, horizontal = 6.dp),
                                 modifier = Modifier
                                     .weight(1f)
                                     .minimumInteractiveComponentSize()
+                                    .pressBounce(quickInteraction, pressedScale = 0.94f)
                                     .testTag("quick_add_$amountMl")
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        imageVector = Icons.Default.WaterDrop,
-                                        contentDescription = "Add $label",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Surface(
+                                        shape = MaterialTheme.shapes.small,
+                                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f),
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Default.WaterDrop,
+                                                contentDescription = "Add $label",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
                                     Text(
                                         text = label,
                                         style = MaterialTheme.typography.labelLarge,
@@ -686,7 +748,8 @@ private fun HomeDashboardContent(
                         entry = entry,
                         unit = state.unit,
                         onEditClick = { onEditEntry(entry) },
-                        onDeleteClick = { onDeleteEntry(entry) }
+                        onDeleteClick = { onDeleteEntry(entry) },
+                        modifier = Modifier.animateItem()
                     )
                 }
             }
@@ -701,7 +764,8 @@ fun WaterEntryRowCard(
     entry: WaterEntryEntity,
     unit: MeasurementUnit,
     onEditClick: () -> Unit,
-    onDeleteClick: (() -> Unit)? = null
+    onDeleteClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
 ) {
     val formattedAmount = remember(entry.amountMl, unit) {
         UnitConverter.formatVolume(entry.amountMl, unit)
@@ -710,15 +774,21 @@ fun WaterEntryRowCard(
         val drinkType = DrinkType.fromName(entry.drinkType)
         "${drinkType.label} • ${DateUtils.formatTime(entry.timestampMillis)}"
     }
+    val rowInteraction = remember { MutableInteractionSource() }
     Card(
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
+            .pressBounce(rowInteraction, pressedScale = 0.985f)
             .clip(MaterialTheme.shapes.medium)
-            .clickable(onClick = onEditClick)
+            .clickable(
+                interactionSource = rowInteraction,
+                indication = LocalIndication.current,
+                onClick = onEditClick
+            )
             .testTag("water_entry_card_${entry.id}")
     ) {
         Row(

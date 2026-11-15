@@ -4,8 +4,15 @@ import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,13 +32,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
@@ -92,6 +98,7 @@ import com.example.model.ThemeMode
 import com.example.notifications.NotificationHelper
 import com.example.ui.components.DailyGoalEditDialog
 import com.example.ui.components.HydrateTimePickerDialog
+import com.example.ui.components.pressBounce
 import com.example.updater.UpdateCheckUiState
 import com.example.utils.DateUtils
 import com.example.utils.SoundFeedbackPlayer
@@ -166,7 +173,6 @@ fun SettingsScreen(
     var showResetTodayConfirm by remember { mutableStateOf(false) }
     var showClearDataConfirm by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
-    var showRepoDialog by remember { mutableStateOf(false) }
 
     val intervals = remember { listOf(15, 30, 45, 60, 90, 120, 180) }
     val withinWakingNow = remember(prefs.wakeHour, prefs.wakeMinute, prefs.bedHour, prefs.bedMinute) {
@@ -611,122 +617,149 @@ fun SettingsScreen(
 
             // App Updates
             item(key = "settings_updates", contentType = "section_card") {
-                val configuredRepo = remember(prefs.updateRepoOverride) {
-                    viewModel.resolveUpdateRepository(prefs.updateRepoOverride)
-                }
-                val hasBuiltInRepo = remember { viewModel.hasBuiltInUpdateRepository() }
                 val isChecking = updateState is UpdateCheckUiState.Checking
                 val isDownloading = updateState is UpdateCheckUiState.Downloading
 
                 SettingsSectionCard(title = "App Updates") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.SystemUpdate,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = "Version ${viewModel.currentVersionName} (Build ${viewModel.currentVersionCode})",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                val statusText = when (val st = updateState) {
-                                    is UpdateCheckUiState.Idle ->
-                                        "Checks automatically only while app is open and online"
-                                    is UpdateCheckUiState.Checking ->
-                                        "Checking GitHub for a newer release..."
-                                    is UpdateCheckUiState.UpToDate ->
-                                        "You're on the latest version"
-                                    is UpdateCheckUiState.Offline ->
-                                        "Offline — turn on Wi-Fi or mobile data to check"
-                                    is UpdateCheckUiState.UpdateAvailable ->
-                                        "New version available: v${st.info.versionName}"
-                                    is UpdateCheckUiState.Downloading ->
-                                        "Downloading update v${st.info.versionName}..."
-                                    is UpdateCheckUiState.ReadyToInstall ->
-                                        if (st.needsInstallPermission) {
-                                            "Allow \"Install unknown apps\" to finish installing v${st.info.versionName}"
-                                        } else {
-                                            "Update v${st.info.versionName} downloaded and ready"
-                                        }
-                                    is UpdateCheckUiState.Error ->
-                                        st.message
-                                }
-                                Text(
-                                    text = statusText,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = when (updateState) {
-                                        is UpdateCheckUiState.UpdateAvailable,
-                                        is UpdateCheckUiState.ReadyToInstall -> MaterialTheme.colorScheme.primary
-                                        is UpdateCheckUiState.Error -> MaterialTheme.colorScheme.error
-                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    val actionLabel = when (val st = updateState) {
-                        is UpdateCheckUiState.Checking -> "Checking..."
-                        is UpdateCheckUiState.Downloading -> "Downloading..."
-                        is UpdateCheckUiState.UpdateAvailable -> "Install Update v${st.info.versionName}"
-                        is UpdateCheckUiState.ReadyToInstall -> "Install Update v${st.info.versionName}"
-                        else -> "Check for Updates"
-                    }
-
-                    Button(
-                        onClick = {
-                            when (updateState) {
-                                is UpdateCheckUiState.UpdateAvailable,
-                                is UpdateCheckUiState.ReadyToInstall -> viewModel.openOrStartAvailableUpdate()
-                                else -> viewModel.checkForUpdatesManually()
-                            }
-                        },
-                        enabled = !isChecking && !isDownloading,
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .minimumInteractiveComponentSize()
-                            .testTag("settings_check_updates_button")
+                            .animateContentSize()
                     ) {
-                        if (isChecking || isDownloading) {
-                            CircularProgressIndicator(
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(16.dp),
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Surface(
+                                    shape = MaterialTheme.shapes.small,
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.SystemUpdate,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = "v${viewModel.currentVersionName}",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Surface(
+                                            shape = MaterialTheme.shapes.small,
+                                            color = MaterialTheme.colorScheme.surfaceVariant
+                                        ) {
+                                            Text(
+                                                text = "Build ${viewModel.currentVersionCode}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    val statusText = when (val st = updateState) {
+                                        is UpdateCheckUiState.Idle ->
+                                            "Checks automatically while app is open and online"
+                                        is UpdateCheckUiState.Checking ->
+                                            "Checking for a newer release..."
+                                        is UpdateCheckUiState.UpToDate ->
+                                            "You're on the latest version"
+                                        is UpdateCheckUiState.Offline ->
+                                            "Offline — turn on Wi-Fi or mobile data to check"
+                                        is UpdateCheckUiState.UpdateAvailable ->
+                                            "New version available: v${st.info.versionName}"
+                                        is UpdateCheckUiState.Downloading ->
+                                            "Downloading update v${st.info.versionName}..."
+                                        is UpdateCheckUiState.ReadyToInstall ->
+                                            if (st.needsInstallPermission) {
+                                                "Allow \"Install unknown apps\" to finish installing v${st.info.versionName}"
+                                            } else {
+                                                "Update v${st.info.versionName} downloaded and ready"
+                                            }
+                                        is UpdateCheckUiState.Error ->
+                                            st.message
+                                    }
+                                    AnimatedContent(
+                                        targetState = statusText,
+                                        transitionSpec = { fadeIn() togetherWith fadeOut() },
+                                        label = "update_status_text"
+                                    ) { text ->
+                                        Text(
+                                            text = text,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = when (updateState) {
+                                                is UpdateCheckUiState.UpdateAvailable,
+                                                is UpdateCheckUiState.ReadyToInstall -> MaterialTheme.colorScheme.primary
+                                                is UpdateCheckUiState.Error -> MaterialTheme.colorScheme.error
+                                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                         }
-                        Text(actionLabel)
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        val actionLabel = when (val st = updateState) {
+                            is UpdateCheckUiState.Checking -> "Checking..."
+                            is UpdateCheckUiState.Downloading -> "Downloading..."
+                            is UpdateCheckUiState.UpdateAvailable -> "Install Update v${st.info.versionName}"
+                            is UpdateCheckUiState.ReadyToInstall -> "Install Update v${st.info.versionName}"
+                            else -> "Check for Updates"
+                        }
+
+                        val checkInteractionSource = remember { MutableInteractionSource() }
+                        Button(
+                            onClick = {
+                                when (updateState) {
+                                    is UpdateCheckUiState.UpdateAvailable,
+                                    is UpdateCheckUiState.ReadyToInstall -> viewModel.openOrStartAvailableUpdate()
+                                    else -> viewModel.checkForUpdatesManually()
+                                }
+                            },
+                            enabled = !isChecking && !isDownloading,
+                            interactionSource = checkInteractionSource,
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .minimumInteractiveComponentSize()
+                                .pressBounce(checkInteractionSource, pressedScale = 0.98f)
+                                .testTag("settings_check_updates_button")
+                        ) {
+                            if (isChecking || isDownloading) {
+                                CircularProgressIndicator(
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(16.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            Text(actionLabel)
+                        }
                     }
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-                    SettingsRowItem(
-                        icon = Icons.Default.Link,
-                        title = "GitHub Update Source",
-                        subtitle = configuredRepo.ifBlank {
-                            if (hasBuiltInRepo) "Auto-detected" else "Tap to set owner/repo (e.g., user/Hydrate-Buddy)"
-                        },
-                        onClick = { showRepoDialog = true },
-                        modifier = Modifier.testTag("settings_update_repo")
-                    )
                 }
             }
 
             // About Card
             item(key = "settings_about", contentType = "about_card") {
+                val aboutInteraction = remember { MutableInteractionSource() }
                 Card(
                     shape = MaterialTheme.shapes.large,
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -734,8 +767,12 @@ fun SettingsScreen(
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .pressBounce(aboutInteraction, pressedScale = 0.985f)
                         .clip(MaterialTheme.shapes.large)
-                        .clickable { showAboutDialog = true }
+                        .clickable(
+                            interactionSource = aboutInteraction,
+                            indication = LocalIndication.current
+                        ) { showAboutDialog = true }
                         .testTag("settings_about_card")
                 ) {
                     Column(modifier = Modifier.padding(18.dp)) {
@@ -747,15 +784,24 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         Row(verticalAlignment = Alignment.Top) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                            Surface(
+                                shape = MaterialTheme.shapes.small,
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Info,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(
-                                    text = "Hydrate Buddy v1.0 (Tap for details)",
+                                    text = "Hydrate Buddy v${viewModel.currentVersionName} (Tap for details)",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -919,52 +965,6 @@ fun SettingsScreen(
             }
         )
     }
-
-    if (showRepoDialog) {
-        var repoInput by remember(prefs.updateRepoOverride) {
-            mutableStateOf(
-                prefs.updateRepoOverride.ifBlank {
-                    viewModel.resolveUpdateRepository("")
-                }
-            )
-        }
-        AlertDialog(
-            onDismissRequest = { showRepoDialog = false },
-            title = { Text("GitHub Repository") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Enter your GitHub repository in owner/repo format (set automatically when built via GitHub Actions).",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    OutlinedTextField(
-                        value = repoInput,
-                        onValueChange = { repoInput = it.take(120) },
-                        label = { Text("owner/repository") },
-                        placeholder = { Text("username/Hydrate-Buddy") },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("settings_repo_input")
-                    )
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    viewModel.updateRepositoryOverride(repoInput)
-                    showRepoDialog = false
-                }) {
-                    Text("Save & Check")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRepoDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
 }
 
 @Composable
@@ -1002,15 +1002,40 @@ private fun SettingsRowItem(
     isDestructive: Boolean = false
 ) {
     val tint = if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    val containerColor = if (isDestructive) {
+        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+    } else {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+    }
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
             .fillMaxWidth()
             .minimumInteractiveComponentSize()
-            .clickable(onClick = onClick)
-            .padding(vertical = 8.dp),
+            .pressBounce(interactionSource, pressedScale = 0.985f)
+            .clip(MaterialTheme.shapes.medium)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                onClick = onClick
+            )
+            .padding(vertical = 8.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(imageVector = icon, contentDescription = null, tint = tint)
+        Surface(
+            shape = MaterialTheme.shapes.small,
+            color = containerColor,
+            modifier = Modifier.size(38.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = tint,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -1025,10 +1050,10 @@ private fun SettingsRowItem(
             )
         }
         Icon(
-            imageVector = Icons.Default.Edit,
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp)
+            modifier = Modifier.size(20.dp)
         )
     }
 }

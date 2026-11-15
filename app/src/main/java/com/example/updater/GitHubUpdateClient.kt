@@ -103,7 +103,7 @@ class GitHubUpdateClient(
                 )
             }
             HttpURLConnection.HTTP_NOT_FOUND -> FetchUpdateResult.NoReleasesFound
-            403 -> FetchUpdateResult.Failure("GitHub update check rate limit reached. Please try again later.")
+            403 -> FetchUpdateResult.Failure("Update server rate limit reached. Please try again later.")
             else -> FetchUpdateResult.Failure("Update server returned HTTP ${response.code}.")
         }
     }

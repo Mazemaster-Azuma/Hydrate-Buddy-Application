@@ -17,6 +17,11 @@ on:
           - debug
           - release
           - both
+      publish_update:
+        description: 'Publish signed APK to GitHub Releases for in-app updates'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -235,9 +240,9 @@ jobs:
           if-no-files-found: error
 
   build-release-apk:
-    name: Build & Publish Signed Release APK
+    name: Build Signed Release APK
     if: >-
-      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag')) ||
+      (github.event_name == 'push' && github.ref_type == 'tag') ||
       (github.event_name == 'workflow_dispatch' && (inputs.build_type == 'release' || inputs.build_type == 'both'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -268,16 +273,18 @@ jobs:
               echo "Unsigned release APKs are never built or uploaded."
             } >> "$GITHUB_STEP_SUMMARY"
 
-            if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
-              echo "::warning::Release signing secrets are missing on main push:${MISSING}. Skipping release build while preserving debug build."
-              echo "ready=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            else
-              echo "::error::Release build requested, but required GitHub Secrets are missing:${MISSING}"
-              exit 1
-            fi
+            echo "::error::Release build requested, but required GitHub Secrets are missing:${MISSING}"
+            exit 1
+          fi
+
+          SHOULD_PUBLISH="false"
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ]; then
+            SHOULD_PUBLISH="true"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.publish_update }}" = "true" ]; then
+            SHOULD_PUBLISH="true"
           fi
           echo "ready=true" >> "$GITHUB_OUTPUT"
+          echo "should_publish=${SHOULD_PUBLISH}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
         if: steps.check_secrets.outputs.ready == 'true'
@@ -287,6 +294,8 @@ jobs:
         if: steps.check_secrets.outputs.ready == 'true'
         id: detect
         shell: bash
+        env:
+          UPDATE_RELEASE_REPO_SECRET: ${{ secrets.UPDATE_RELEASE_REPO }}
         run: |
           set -euo pipefail
 
@@ -381,7 +390,7 @@ jobs:
           echo "has_wrapper=${HAS_WRAPPER}" >> "$GITHUB_OUTPUT"
           echo "apk_dir=${APK_DIR}" >> "$GITHUB_OUTPUT"
 
-          # Monotonic versionCode & versionName so Android and the in-app updater always recognize new pushes
+          # Monotonic versionCode & versionName so Android and the in-app updater always recognize new releases
           VERSION_CODE=$((100 + GITHUB_RUN_NUMBER))
           if [ "${{ github.ref_type }}" = "tag" ]; then
             RELEASE_TAG="${{ github.ref_name }}"
@@ -391,14 +400,17 @@ jobs:
             RELEASE_TAG="v${VERSION_NAME}"
           fi
 
+          TARGET_UPDATE_REPO="${UPDATE_RELEASE_REPO_SECRET:-${{ github.repository }}}"
+
           echo "VERSION_CODE=${VERSION_CODE}" >> "$GITHUB_ENV"
           echo "VERSION_NAME=${VERSION_NAME}" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=${RELEASE_TAG}" >> "$GITHUB_ENV"
-          echo "GITHUB_REPOSITORY=${{ github.repository }}" >> "$GITHUB_ENV"
+          echo "UPDATE_RELEASE_REPO=${TARGET_UPDATE_REPO}" >> "$GITHUB_ENV"
 
           echo "release_version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
           echo "release_version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
           echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "target_update_repo=${TARGET_UPDATE_REPO}" >> "$GITHUB_OUTPUT"
 
           echo "Verified toolchain configuration:"
           echo "  Application module : ${APP_GRADLE_PATH}"
@@ -409,6 +421,8 @@ jobs:
           echo "  Gradle wrapper OK  : ${HAS_WRAPPER}"
           echo "  APK output dir     : ${APK_DIR}"
           echo "  Release version    : v${VERSION_NAME} (versionCode=${VERSION_CODE})"
+          echo "  Update source repo : ${TARGET_UPDATE_REPO}"
+          echo "  Publish update     : ${{ steps.check_secrets.outputs.should_publish }}"
 
       - name: Set up JDK ${{ steps.detect.outputs.jdk_version }}
         if: steps.check_secrets.outputs.ready == 'true'
@@ -555,24 +569,46 @@ jobs:
           echo "metadata_path=${METADATA_PATH}" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub Release for in-app updates
-        if: steps.check_secrets.outputs.ready == 'true'
+        if: steps.check_secrets.outputs.ready == 'true' && steps.check_secrets.outputs.should_publish == 'true'
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN_DEFAULT: ${{ github.token }}
+          UPDATE_RELEASE_REPO_SECRET: ${{ secrets.UPDATE_RELEASE_REPO }}
+          UPDATE_REPO_TOKEN_SECRET: ${{ secrets.UPDATE_REPO_TOKEN }}
         run: |
           set -euo pipefail
           APK_FILE="${{ steps.release_assets.outputs.release_apk_path }}"
           META_FILE="${{ steps.release_assets.outputs.metadata_path }}"
+          TARGET_REPO="${{ steps.detect.outputs.target_update_repo }}"
 
-          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            gh release upload "${RELEASE_TAG}" "$APK_FILE" "$META_FILE" --clobber
-          else
-            gh release create "${RELEASE_TAG}" "$APK_FILE" "$META_FILE" \
-              --target "${{ github.sha }}" \
-              --title "Hydrate Buddy v${VERSION_NAME}" \
-              --generate-notes
+          if [ -n "${UPDATE_RELEASE_REPO_SECRET:-}" ] && [ -z "${UPDATE_REPO_TOKEN_SECRET:-}" ]; then
+            echo "::error::UPDATE_RELEASE_REPO is set, but UPDATE_REPO_TOKEN secret is missing."
+            exit 1
           fi
-          echo "Published GitHub Release ${RELEASE_TAG} (versionCode=${VERSION_CODE})"
+
+          if [ -n "${UPDATE_REPO_TOKEN_SECRET:-}" ]; then
+            export GH_TOKEN="$UPDATE_REPO_TOKEN_SECRET"
+          else
+            export GH_TOKEN="$GITHUB_TOKEN_DEFAULT"
+          fi
+
+          if gh release view "${RELEASE_TAG}" --repo "$TARGET_REPO" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" "$APK_FILE" "$META_FILE" --repo "$TARGET_REPO" --clobber
+          else
+            if [ "$TARGET_REPO" = "${{ github.repository }}" ]; then
+              gh release create "${RELEASE_TAG}" "$APK_FILE" "$META_FILE" \
+                --repo "$TARGET_REPO" \
+                --target "${{ github.sha }}" \
+                --title "Hydrate Buddy v${VERSION_NAME}" \
+                --generate-notes
+            else
+              gh release create "${RELEASE_TAG}" "$APK_FILE" "$META_FILE" \
+                --repo "$TARGET_REPO" \
+                --title "Hydrate Buddy v${VERSION_NAME}" \
+                --notes "Hydrate Buddy release v${VERSION_NAME} (versionCode ${VERSION_CODE})"
+            fi
+          fi
+          echo "Published GitHub Release ${RELEASE_TAG} to ${TARGET_REPO} (versionCode=${VERSION_CODE})"
 
       - name: Clean up temporary release keystore
         if: always()

@@ -21,7 +21,8 @@ data class UserPreferences(
     val vibrationEnabled: Boolean = true,
     val themeMode: ThemeMode = ThemeMode.LIGHT,
     val onboardingCompleted: Boolean = false,
-    val updateRepoOverride: String = ""
+    val updateRepoOverride: String = "",
+    val updateAccessToken: String = ""
 )
 
 @Immutable

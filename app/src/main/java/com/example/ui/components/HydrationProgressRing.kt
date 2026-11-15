@@ -28,7 +28,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-private val RingTipColor = Color.White.copy(alpha = 0.9f)
+private val RingTipColor = Color.White.copy(alpha = 0.94f)
 
 @Composable
 fun HydrationProgressRing(
@@ -91,10 +91,15 @@ private fun ProgressRingCanvas(
     val density = LocalDensity.current
     val strokePx = with(density) { strokeWidth.toPx() }
     val insetPaddingPx = with(density) { 6.dp.toPx() }
+    val innerRimStrokePx = with(density) { 1.2.dp.toPx() }
     val strokeStyle = remember(strokePx) {
         Stroke(width = strokePx, cap = StrokeCap.Round)
     }
-    val backdropColor = remember(primary) { primary.copy(alpha = 0.06f) }
+    val innerRimStyle = remember(innerRimStrokePx) {
+        Stroke(width = innerRimStrokePx)
+    }
+    val backdropColor = remember(primary) { primary.copy(alpha = 0.055f) }
+    val innerRimColor = remember(primary) { primary.copy(alpha = 0.10f) }
 
     Canvas(modifier = modifier) {
         val inset = strokePx / 2f + insetPaddingPx
@@ -102,11 +107,18 @@ private fun ProgressRingCanvas(
         val topLeft = Offset(inset, inset)
         val currentProgress = animatedProgressState.value
 
-        // Soft inner backdrop circle
+        // Soft inner backdrop circle + subtle hairline rim
+        val innerRadius = arcSize.width / 2f - strokePx * 0.45f
         drawCircle(
             color = backdropColor,
-            radius = arcSize.width / 2f - strokePx * 0.4f,
+            radius = innerRadius,
             center = center
+        )
+        drawCircle(
+            color = innerRimColor,
+            radius = innerRadius,
+            center = center,
+            style = innerRimStyle
         )
 
         // Track ring
@@ -132,14 +144,14 @@ private fun ProgressRingCanvas(
                 style = strokeStyle
             )
 
-            // Glowing tip dot at end of arc
+            // Glowing tip highlight dot at end of arc
             val angleRad = ((-90f + sweep) * PI / 180.0).toFloat()
             val radius = arcSize.width / 2f
             val tipX = center.x + cos(angleRad) * radius
             val tipY = center.y + sin(angleRad) * radius
             drawCircle(
                 color = RingTipColor,
-                radius = strokePx * 0.24f,
+                radius = strokePx * 0.25f,
                 center = Offset(tipX, tipY)
             )
         }

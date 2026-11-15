@@ -29,6 +29,7 @@ data class GitHubReleaseResponse(
 @Serializable
 data class GitHubReleaseAsset(
     val name: String = "",
+    val url: String = "",
     @SerialName("browser_download_url")
     val browserDownloadUrl: String = "",
     val size: Long = 0L,

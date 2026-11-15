@@ -37,6 +37,7 @@ class UserPreferencesDataStore(private val context: Context) {
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         val UPDATE_REPO_OVERRIDE = stringPreferencesKey("update_repo_override")
+        val UPDATE_ACCESS_TOKEN = stringPreferencesKey("update_access_token")
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.hydrateDataStore.data.map { prefs ->
@@ -55,7 +56,8 @@ class UserPreferencesDataStore(private val context: Context) {
             vibrationEnabled = prefs[Keys.VIBRATION_ENABLED] ?: true,
             themeMode = ThemeMode.fromName(prefs[Keys.THEME_MODE] ?: ThemeMode.LIGHT.name),
             onboardingCompleted = prefs[Keys.ONBOARDING_COMPLETED] ?: false,
-            updateRepoOverride = prefs[Keys.UPDATE_REPO_OVERRIDE] ?: ""
+            updateRepoOverride = prefs[Keys.UPDATE_REPO_OVERRIDE] ?: "",
+            updateAccessToken = prefs[Keys.UPDATE_ACCESS_TOKEN] ?: ""
         )
     }
 
@@ -79,7 +81,8 @@ class UserPreferencesDataStore(private val context: Context) {
                 vibrationEnabled = prefs[Keys.VIBRATION_ENABLED] ?: true,
                 themeMode = ThemeMode.fromName(prefs[Keys.THEME_MODE] ?: ThemeMode.LIGHT.name),
                 onboardingCompleted = prefs[Keys.ONBOARDING_COMPLETED] ?: false,
-                updateRepoOverride = prefs[Keys.UPDATE_REPO_OVERRIDE] ?: ""
+                updateRepoOverride = prefs[Keys.UPDATE_REPO_OVERRIDE] ?: "",
+                updateAccessToken = prefs[Keys.UPDATE_ACCESS_TOKEN] ?: ""
             )
             updated = transform(current)
             prefs[Keys.USER_NAME] = updated.userName
@@ -97,6 +100,7 @@ class UserPreferencesDataStore(private val context: Context) {
             prefs[Keys.THEME_MODE] = updated.themeMode.name
             prefs[Keys.ONBOARDING_COMPLETED] = updated.onboardingCompleted
             prefs[Keys.UPDATE_REPO_OVERRIDE] = updated.updateRepoOverride
+            prefs[Keys.UPDATE_ACCESS_TOKEN] = updated.updateAccessToken
         }
         return updated
     }

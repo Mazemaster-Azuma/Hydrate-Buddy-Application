@@ -191,12 +191,6 @@ class SettingsViewModel(
         }
     }
 
-    fun resolveUpdateRepository(override: String): String =
-        updateCoordinator.resolveConfiguredRepo(override)
-
-    fun hasBuiltInUpdateRepository(): Boolean =
-        updateCoordinator.isBuiltInRepoPresent()
-
     fun checkForUpdatesManually() {
         updateCoordinator.checkForUpdatesManually()
     }
@@ -206,20 +200,6 @@ class SettingsViewModel(
             is UpdateCheckUiState.UpdateAvailable -> updateCoordinator.showAvailableUpdateDialog()
             is UpdateCheckUiState.ReadyToInstall -> updateCoordinator.startDownloadAndInstall()
             else -> updateCoordinator.checkForUpdatesManually()
-        }
-    }
-
-    fun updateRepositoryOverride(rawInput: String) {
-        viewModelScope.launch {
-            val saved = updateCoordinator.saveRepositoryOverride(rawInput)
-            if (!saved) {
-                _statusMessages.emit("Enter a valid GitHub repo like owner/Hydrate-Buddy")
-            } else {
-                _statusMessages.emit("Update source saved")
-                if (rawInput.trim().isNotEmpty()) {
-                    updateCoordinator.checkForUpdatesManually()
-                }
-            }
         }
     }
 }

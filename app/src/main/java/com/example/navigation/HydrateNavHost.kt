@@ -3,6 +3,7 @@ package com.example.navigation
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,8 +27,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -145,11 +148,19 @@ fun HydrateNavHost(
                             containerColor = MaterialTheme.colorScheme.surface,
                             tonalElevation = 0.dp
                         ) {
+                            val navBarColors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                             navItems.forEach { item ->
                                 val selected = currentDestination?.hasRoute(item.route::class) == true
                                 NavigationBarItem(
                                     selected = selected,
                                     onClick = { navigateToTab(item.route) },
+                                    colors = navBarColors,
                                     icon = {
                                         Icon(
                                             imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
@@ -180,11 +191,19 @@ fun HydrateNavHost(
                     NavigationRail(
                         containerColor = MaterialTheme.colorScheme.surface
                     ) {
+                        val railColors = NavigationRailItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         navItems.forEach { item ->
                             val selected = currentDestination?.hasRoute(item.route::class) == true
                             NavigationRailItem(
                                 selected = selected,
                                 onClick = { navigateToTab(item.route) },
+                                colors = railColors,
                                 icon = {
                                     Icon(
                                         imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
@@ -237,10 +256,16 @@ fun HydrateNavHost(
                 NavHost(
                     navController = navController,
                     startDestination = startDestination,
-                    enterTransition = { fadeIn(animationSpec = tween(90)) },
-                    exitTransition = { fadeOut(animationSpec = tween(70)) },
-                    popEnterTransition = { fadeIn(animationSpec = tween(90)) },
-                    popExitTransition = { fadeOut(animationSpec = tween(70)) },
+                    enterTransition = {
+                        fadeIn(animationSpec = tween(150)) +
+                            scaleIn(initialScale = 0.985f, animationSpec = tween(150))
+                    },
+                    exitTransition = { fadeOut(animationSpec = tween(110)) },
+                    popEnterTransition = {
+                        fadeIn(animationSpec = tween(150)) +
+                            scaleIn(initialScale = 0.985f, animationSpec = tween(150))
+                    },
+                    popExitTransition = { fadeOut(animationSpec = tween(110)) },
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()

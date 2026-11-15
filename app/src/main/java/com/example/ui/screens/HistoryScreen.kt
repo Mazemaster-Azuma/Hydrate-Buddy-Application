@@ -1,5 +1,11 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -334,7 +340,8 @@ fun HistoryScreen(
                                 entry = entry,
                                 unit = state.unit,
                                 onEditClick = { editingEntry = entry },
-                                onDeleteClick = { deleteWithUndo(entry) }
+                                onDeleteClick = { deleteWithUndo(entry) },
+                                modifier = Modifier.animateItem()
                             )
                         }
                     }
@@ -415,7 +422,20 @@ private fun DaySummaryCard(
     unit: MeasurementUnit
 ) {
     val extendedColors = LocalHydrateColors.current
-    val fraction = (totalMl.toFloat() / goalMl.coerceAtLeast(1)).coerceIn(0f, 1f)
+    val targetFraction = (totalMl.toFloat() / goalMl.coerceAtLeast(1)).coerceIn(0f, 1f)
+    val animatedFraction by animateFloatAsState(
+        targetValue = targetFraction,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "day_summary_progress"
+    )
+    val animatedTotalMl by animateIntAsState(
+        targetValue = totalMl,
+        animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
+        label = "day_summary_total"
+    )
 
     Card(
         shape = MaterialTheme.shapes.large,
@@ -440,7 +460,7 @@ private fun DaySummaryCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = UnitConverter.formatVolume(totalMl, unit),
+                        text = UnitConverter.formatVolume(animatedTotalMl, unit),
                         style = MaterialTheme.typography.displayMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -459,7 +479,7 @@ private fun DaySummaryCard(
             }
 
             LinearProgressIndicator(
-                progress = { fraction },
+                progress = { animatedFraction },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(12.dp)
@@ -533,6 +553,22 @@ private fun WeeklyChartCard(
                 Brush.verticalGradient(listOf(primary.copy(alpha = 0.78f), primary.copy(alpha = 0.55f)))
             }
 
+            val animatedRatios = points.mapIndexed { idx, point ->
+                val targetRatio = if (point.totalMl > 0) {
+                    (point.totalMl.toFloat() / maxVal.toFloat()).coerceIn(0.05f, 1f)
+                } else {
+                    0f
+                }
+                animateFloatAsState(
+                    targetValue = targetRatio,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    label = "weekly_bar_$idx"
+                )
+            }
+
             // Overlay clickable columns over the Canvas so vertical scrolling is never intercepted
             Box(
                 modifier = Modifier
@@ -568,8 +604,8 @@ private fun WeeklyChartCard(
                             cornerRadius = barRadius
                         )
 
-                        if (point.totalMl > 0) {
-                            val hRatio = (point.totalMl.toFloat() / maxVal.toFloat()).coerceIn(0.05f, 1f)
+                        val hRatio = animatedRatios.getOrNull(idx)?.value ?: 0f
+                        if (hRatio > 0.005f) {
                             val barH = chartHeight * hRatio
                             val top = topPadPx + (chartHeight - barH)
                             val isSelected = point.dateIso == selectedDateIso

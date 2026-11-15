@@ -4,9 +4,11 @@ import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,6 +73,7 @@ import com.example.model.MeasurementUnit
 import com.example.notifications.NotificationHelper
 import com.example.ui.components.HydrateTimePickerDialog
 import com.example.ui.components.WaterBuddyCanvas
+import com.example.ui.components.pressBounce
 import com.example.ui.theme.LocalHydrateColors
 import com.example.utils.DateUtils
 import com.example.utils.UnitConverter
@@ -157,8 +160,8 @@ fun OnboardingScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     WaterBuddyCanvas(
-                        mood = BuddyMood.HAPPY,
-                        size = 132.dp
+                        mood = BuddyMood.EXCITED,
+                        size = 144.dp
                     )
                     Text(
                         text = stringResource(R.string.onboarding_headline),
@@ -328,7 +331,9 @@ fun OnboardingScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier = Modifier.padding(18.dp),
+                        modifier = Modifier
+                            .padding(18.dp)
+                            .animateContentSize(),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Row(
@@ -517,13 +522,16 @@ fun OnboardingScreen(
                         Text("Skip")
                     }
 
+                    val startInteraction = remember { MutableInteractionSource() }
                     Button(
                         onClick = startAction,
                         enabled = !state.isSaving && goalError == null,
+                        interactionSource = startInteraction,
                         shape = MaterialTheme.shapes.large,
                         modifier = Modifier
                             .weight(1f)
                             .height(52.dp)
+                            .pressBounce(startInteraction, pressedScale = 0.97f)
                             .testTag("onboarding_start_button")
                     ) {
                         Text(
