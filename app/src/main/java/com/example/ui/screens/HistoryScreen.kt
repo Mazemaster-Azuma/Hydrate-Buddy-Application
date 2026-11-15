@@ -1,11 +1,16 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -17,6 +22,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,6 +39,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Today
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
@@ -179,11 +186,39 @@ fun HistoryScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     item(key = "history_title", contentType = "header") {
-                        Text(
-                            text = "Hydration History",
-                            style = MaterialTheme.typography.headlineMedium,
-                            modifier = Modifier.testTag("history_title")
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = 40.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Hydration History",
+                                style = MaterialTheme.typography.headlineMedium,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("history_title")
+                            )
+                            AnimatedVisibility(
+                                visible = !state.isToday,
+                                enter = fadeIn() + scaleIn(initialScale = 0.92f),
+                                exit = fadeOut() + scaleOut(targetScale = 0.92f)
+                            ) {
+                                AssistChip(
+                                    onClick = { viewModel.selectDate(DateUtils.todayIso()) },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Today,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    },
+                                    label = { Text("Jump to Today") },
+                                    modifier = Modifier.testTag("history_jump_today_chip")
+                                )
+                            }
+                        }
                     }
 
                     // Period Selector
@@ -210,17 +245,15 @@ fun HistoryScreen(
                         }
                     }
 
-                    // Date selector bar
+                    // Date selector bar (always steps day-by-day cleanly)
                     item(key = "history_date_stepper", contentType = "date_stepper") {
-                        val onPrev = remember(viewModel) { { viewModel.stepDate(-1) } }
-                        val onNext = remember(viewModel) { { viewModel.stepDate(1) } }
-                        val onJumpToday = remember(viewModel) { { viewModel.selectDate(DateUtils.todayIso()) } }
+                        val onPrev = remember(viewModel) { { viewModel.stepDay(-1) } }
+                        val onNext = remember(viewModel) { { viewModel.stepDay(1) } }
                         DateStepperCard(
                             dateLabel = state.selectedDateLabel,
                             isToday = state.isToday,
                             onPrev = onPrev,
-                            onNext = onNext,
-                            onJumpToday = onJumpToday
+                            onNext = onNext
                         )
                     }
 
@@ -244,7 +277,9 @@ fun HistoryScreen(
                                     weeklyTotalMl = state.weeklyTotalMl,
                                     weeklyAvgMl = state.weeklyAverageMl,
                                     unit = state.unit,
-                                    onSelectDate = viewModel::selectDate
+                                    onSelectDate = viewModel::selectDate,
+                                    onPrevWeek = { viewModel.stepWeek(-1) },
+                                    onNextWeek = { viewModel.stepWeek(1) }
                                 )
                             }
                         }
@@ -259,8 +294,8 @@ fun HistoryScreen(
                                     goalsMetCount = state.monthlyGoalsMetCount,
                                     unit = state.unit,
                                     onSelectDate = viewModel::selectDate,
-                                    onPrevMonth = { viewModel.stepDate(-1) },
-                                    onNextMonth = { viewModel.stepDate(1) },
+                                    onPrevMonth = { viewModel.stepMonth(-1) },
+                                    onNextMonth = { viewModel.stepMonth(1) },
                                     onJumpCurrentMonth = { viewModel.selectDate(DateUtils.todayIso()) }
                                 )
                             }
@@ -367,8 +402,7 @@ private fun DateStepperCard(
     dateLabel: String,
     isToday: Boolean,
     onPrev: () -> Unit,
-    onNext: () -> Unit,
-    onJumpToday: () -> Unit
+    onNext: () -> Unit
 ) {
     Card(
         shape = MaterialTheme.shapes.medium,
@@ -393,22 +427,18 @@ private fun DateStepperCard(
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous")
             }
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = dateLabel,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                if (!isToday) {
-                    AssistChip(
-                        onClick = onJumpToday,
-                        label = { Text("Today") }
-                    )
-                }
-            }
+            Text(
+                text = dateLabel,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 8.dp)
+                    .testTag("history_selected_date_label")
+            )
 
             IconButton(
                 onClick = onNext,
@@ -507,13 +537,19 @@ private fun WeeklyChartCard(
     weeklyTotalMl: Int,
     weeklyAvgMl: Int,
     unit: MeasurementUnit,
-    onSelectDate: (String) -> Unit
+    onSelectDate: (String) -> Unit,
+    onPrevWeek: () -> Unit,
+    onNextWeek: () -> Unit
 ) {
     val primary = MaterialTheme.colorScheme.primary
     val secondary = MaterialTheme.colorScheme.secondary
     val success = LocalHydrateColors.current.success
     val trackColor = LocalHydrateColors.current.waterRingTrack
     val outlineColor = MaterialTheme.colorScheme.outline
+    val todayIso = remember(selectedDateIso) { DateUtils.todayIso() }
+    val isCurrentWeek = remember(points, todayIso) {
+        points.any { it.dateIso == todayIso }
+    }
 
     Card(
         shape = MaterialTheme.shapes.large,
@@ -531,20 +567,46 @@ private fun WeeklyChartCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Icon(
                         imageVector = Icons.Default.BarChart,
                         contentDescription = null,
                         tint = primary
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("7-Day Hydration", style = MaterialTheme.typography.titleMedium)
+                    Column {
+                        Text("7-Day Hydration", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = "Tap a bar to inspect",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
-                Text(
-                    text = "Tap a bar to inspect",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onPrevWeek,
+                        modifier = Modifier.testTag("history_prev_week")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            contentDescription = "Previous week"
+                        )
+                    }
+                    IconButton(
+                        onClick = onNextWeek,
+                        enabled = !isCurrentWeek,
+                        modifier = Modifier.testTag("history_next_week")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = "Next week"
+                        )
+                    }
+                }
             }
 
             val maxVal = remember(points) {

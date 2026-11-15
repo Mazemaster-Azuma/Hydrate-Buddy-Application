@@ -182,17 +182,18 @@ class HistoryViewModel(
         selectedDateIsoFlow.value = if (dateIso > today) today else dateIso
     }
 
-    fun stepDate(daysDelta: Int) {
-        val next = when (selectedPeriodFlow.value) {
-            HistoryPeriod.DAY -> DateUtils.dateIsoOffset(selectedDateIsoFlow.value, daysDelta)
-            HistoryPeriod.WEEK -> DateUtils.dateIsoOffset(selectedDateIsoFlow.value, daysDelta * 7)
-            HistoryPeriod.MONTH -> {
-                val cal = DateUtils.parseIsoToCalendar(selectedDateIsoFlow.value)
-                cal.add(Calendar.MONTH, daysDelta)
-                DateUtils.calendarToIso(cal)
-            }
-        }
-        selectDate(next)
+    fun stepDay(daysDelta: Int) {
+        selectDate(DateUtils.dateIsoOffset(selectedDateIsoFlow.value, daysDelta))
+    }
+
+    fun stepWeek(weeksDelta: Int) {
+        selectDate(DateUtils.dateIsoOffset(selectedDateIsoFlow.value, weeksDelta * 7))
+    }
+
+    fun stepMonth(monthsDelta: Int) {
+        val cal = DateUtils.parseIsoToCalendar(selectedDateIsoFlow.value)
+        cal.add(Calendar.MONTH, monthsDelta)
+        selectDate(DateUtils.calendarToIso(cal))
     }
 
     fun addEntryForSelectedDate(amountMl: Int, drinkType: DrinkType) {

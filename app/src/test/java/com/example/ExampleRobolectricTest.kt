@@ -290,7 +290,7 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `history month stepping uses calendar months and tabs switch smoothly`() {
+    fun `history month stepping uses calendar months and day arrows step one day in month tab`() {
         val vm = trackVm("history_month") { HistoryViewModel(repository) }
         composeTestRule.setContent {
             HydrateBuddyTheme {
@@ -306,11 +306,28 @@ class ExampleRobolectricTest {
         }
         composeTestRule.waitUntilAtLeastOneExists(hasText("Tue, Mar 31"), timeoutMillis = 5000)
 
-        composeTestRule.onNodeWithTag("history_prev_day").performClick()
+        // Month card arrows step by calendar month
+        composeTestRule.onNodeWithTag("history_prev_month").performClick()
         composeTestRule.waitUntilAtLeastOneExists(hasText("Sat, Feb 28"), timeoutMillis = 5000)
 
-        composeTestRule.onNodeWithTag("history_prev_day").performClick()
+        composeTestRule.onNodeWithTag("history_prev_month").performClick()
         composeTestRule.waitUntilAtLeastOneExists(hasText("Wed, Jan 28"), timeoutMillis = 5000)
+
+        // Date stepper arrows step strictly day-by-day even while on the Month tab
+        composeTestRule.onNodeWithTag("history_prev_day").performClick()
+        composeTestRule.waitUntilAtLeastOneExists(hasText("Tue, Jan 27"), timeoutMillis = 5000)
+
+        composeTestRule.onNodeWithTag("history_next_day").performClick()
+        composeTestRule.waitUntilAtLeastOneExists(hasText("Wed, Jan 28"), timeoutMillis = 5000)
+
+        // Stepping forward across a month boundary moves to the 1st of the next month (not Today)
+        composeTestRule.runOnUiThread {
+            vm.selectDate("2026-03-31")
+        }
+        composeTestRule.waitUntilAtLeastOneExists(hasText("Tue, Mar 31"), timeoutMillis = 5000)
+        composeTestRule.onNodeWithTag("history_next_day").performClick()
+        composeTestRule.waitUntilAtLeastOneExists(hasText("Wed, Apr 1"), timeoutMillis = 5000)
+        composeTestRule.waitUntilAtLeastOneExists(hasText("April 2026"), timeoutMillis = 5000)
     }
 
     @Test
@@ -415,13 +432,28 @@ class ExampleRobolectricTest {
         }
         composeTestRule.waitUntilAtLeastOneExists(hasTestTag("month_day_2026-04-01"), timeoutMillis = 5000)
         composeTestRule.onNodeWithTag("month_day_2026-04-03").performClick()
-        composeTestRule.waitUntilAtLeastOneExists(hasText("Fri, Apr 3"), timeoutMillis = 5000)
+        composeTestRule.waitUntilAtLeastOneExists(
+            hasTestTag("history_selected_date_label") and hasText("Fri, Apr 3"),
+            timeoutMillis = 5000
+        )
+        composeTestRule.onNode(
+            hasTestTag("history_selected_date_label") and hasText("Today", substring = true)
+        ).assertDoesNotExist()
+        composeTestRule.onNodeWithTag("history_jump_today_chip").assertIsDisplayed()
 
         composeTestRule.onNodeWithTag("history_prev_month").performClick()
         composeTestRule.waitUntilAtLeastOneExists(hasTestTag("month_day_2026-03-03"), timeoutMillis = 5000)
 
         composeTestRule.onNodeWithTag("history_next_month").performClick()
         composeTestRule.waitUntilAtLeastOneExists(hasTestTag("month_day_2026-04-03"), timeoutMillis = 5000)
+
+        composeTestRule.onNodeWithTag("history_list")
+            .performScrollToNode(hasTestTag("history_jump_today_chip"))
+        composeTestRule.onNodeWithTag("history_jump_today_chip").performClick()
+        composeTestRule.waitUntilAtLeastOneExists(
+            hasTestTag("history_selected_date_label") and hasText("Today", substring = true),
+            timeoutMillis = 5000
+        )
     }
 }
 
