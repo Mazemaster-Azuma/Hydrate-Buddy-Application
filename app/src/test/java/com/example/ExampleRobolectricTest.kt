@@ -13,6 +13,7 @@ import androidx.compose.ui.test.isOn
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
@@ -32,12 +33,14 @@ import com.example.notifications.AlarmRingController
 import com.example.notifications.AlarmRingState
 import com.example.repository.HydrationRepository
 import com.example.ui.components.AlarmRingingDialog
+import com.example.ui.screens.AchievementsScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.OnboardingScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.theme.HydrateBuddyTheme
 import com.example.utils.DateUtils
+import com.example.viewmodel.AchievementsViewModel
 import com.example.viewmodel.HistoryViewModel
 import com.example.viewmodel.HomeViewModel
 import com.example.viewmodel.OnboardingViewModel
@@ -356,6 +359,69 @@ class ExampleRobolectricTest {
         val onboardingVm = trackVm("onboarding_cap") { OnboardingViewModel(repository, context) }
         onboardingVm.setUserName("Alex".repeat(15))
         assertEquals(32, onboardingVm.uiState.value.userName.length)
+    }
+
+    @Test
+    fun `rewards shows stay tuned footer and settings shows test ringtone without file name`() {
+        val achievementsVm = trackVm("rewards_footer") { AchievementsViewModel(repository) }
+        composeTestRule.setContent {
+            HydrateBuddyTheme {
+                AchievementsScreen(viewModel = achievementsVm)
+            }
+        }
+        composeTestRule.waitUntilAtLeastOneExists(hasTestTag("achievements_list"), timeoutMillis = 5000)
+        composeTestRule.onNodeWithTag("achievements_list")
+            .performScrollToNode(hasTestTag("achievements_stay_tuned_footer"))
+        composeTestRule.onNodeWithTag("achievements_stay_tuned_footer").assertIsDisplayed()
+    }
+
+    @Test
+    fun `settings test ringtone omits audio file name`() {
+        val vm = trackVm("settings_ringtone") { SettingsViewModel(repository, context) }
+        composeTestRule.setContent {
+            HydrateBuddyTheme {
+                val snackbarHost = remember { SnackbarHostState() }
+                SettingsScreen(
+                    viewModel = vm,
+                    snackbarHostState = snackbarHost,
+                    onDataCleared = {},
+                    onRevisitOnboarding = {}
+                )
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("settings_list")
+            .performScrollToNode(hasTestTag("settings_preview_water_chime_button"))
+        composeTestRule.onNode(
+            hasTestTag("settings_preview_water_chime_button") and hasText("Test Ringtone")
+        ).performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun `history month calendar switches months and selects days cleanly`() {
+        val vm = trackVm("history_month_calendar") { HistoryViewModel(repository) }
+        composeTestRule.setContent {
+            HydrateBuddyTheme {
+                val snackbarHost = remember { SnackbarHostState() }
+                HistoryScreen(viewModel = vm, snackbarHostState = snackbarHost)
+            }
+        }
+        composeTestRule.waitUntilAtLeastOneExists(hasTestTag("history_list"), timeoutMillis = 5000)
+        composeTestRule.onNodeWithTag("history_tab_month").performClick()
+        composeTestRule.waitUntilAtLeastOneExists(hasTestTag("history_prev_month"), timeoutMillis = 5000)
+
+        composeTestRule.runOnUiThread {
+            vm.selectDate("2026-04-15")
+        }
+        composeTestRule.waitUntilAtLeastOneExists(hasTestTag("month_day_2026-04-01"), timeoutMillis = 5000)
+        composeTestRule.onNodeWithTag("month_day_2026-04-03").performClick()
+        composeTestRule.waitUntilAtLeastOneExists(hasText("Fri, Apr 3"), timeoutMillis = 5000)
+
+        composeTestRule.onNodeWithTag("history_prev_month").performClick()
+        composeTestRule.waitUntilAtLeastOneExists(hasTestTag("month_day_2026-03-03"), timeoutMillis = 5000)
+
+        composeTestRule.onNodeWithTag("history_next_month").performClick()
+        composeTestRule.waitUntilAtLeastOneExists(hasTestTag("month_day_2026-04-03"), timeoutMillis = 5000)
     }
 }
 

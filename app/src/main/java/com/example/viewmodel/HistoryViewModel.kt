@@ -32,6 +32,7 @@ class HistoryViewModel(
 
     private val selectedPeriodFlow = MutableStateFlow(HistoryPeriod.WEEK)
     private val selectedDateIsoFlow = MutableStateFlow(DateUtils.todayIso())
+    private val todayIsoFlow = MutableStateFlow(DateUtils.todayIso())
 
     private val selectedDayEntriesFlow = selectedDateIsoFlow.flatMapLatest { dateIso ->
         repository.observeEntriesForDate(dateIso)
@@ -42,9 +43,18 @@ class HistoryViewModel(
         selectedDateIsoFlow,
         selectedDayEntriesFlow,
         repository.allProgressFlow,
-        repository.preferencesFlow
-    ) { period, selectedDateIso, dayEntries, allProgress, prefs ->
-        buildHistoryState(period, selectedDateIso, dayEntries, allProgress, prefs)
+        repository.preferencesFlow,
+        todayIsoFlow
+    ) { values ->
+        val period = values[0] as HistoryPeriod
+        val selectedDateIso = values[1] as String
+        @Suppress("UNCHECKED_CAST")
+        val dayEntries = values[2] as List<WaterEntryEntity>
+        @Suppress("UNCHECKED_CAST")
+        val allProgress = values[3] as List<DailyProgressEntity>
+        val prefs = values[4] as UserPreferences
+        val todayIso = values[5] as String
+        buildHistoryState(period, selectedDateIso, dayEntries, allProgress, prefs, todayIso)
     }
         .flowOn(Dispatchers.Default)
         .distinctUntilChanged()
@@ -59,9 +69,9 @@ class HistoryViewModel(
         selectedDateIso: String,
         dayEntries: List<WaterEntryEntity>,
         allProgress: List<DailyProgressEntity>,
-        prefs: UserPreferences
+        prefs: UserPreferences,
+        todayIso: String = DateUtils.todayIso()
     ): HistoryUiState.Success {
-        val todayIso = DateUtils.todayIso()
         val progressByDate = allProgress.associateBy { it.dateIso }
         val defaultGoal = prefs.dailyGoalMl.coerceAtLeast(1)
 
@@ -117,8 +127,9 @@ class HistoryViewModel(
         }
 
         val elapsedMonthDays = monthlyDays.filter { !it.isFuture }
+        val activeMonthDays = elapsedMonthDays.count { it.totalMl > 0 }
         val monthlyTotal = elapsedMonthDays.sumOf { it.totalMl }
-        val monthlyAvg = if (elapsedMonthDays.isNotEmpty()) monthlyTotal / elapsedMonthDays.size else 0
+        val monthlyAvg = if (activeMonthDays > 0) monthlyTotal / activeMonthDays else 0
         val monthlyGoalsMet = elapsedMonthDays.count { it.totalMl >= it.goalMl && it.totalMl > 0 }
 
         return HistoryUiState.Success(
@@ -149,12 +160,25 @@ class HistoryViewModel(
         return if (selectedDateIso >= sixDaysAgo) todayIso else selectedDateIso
     }
 
+    fun refreshTodayIfNeeded() {
+        val latestToday = DateUtils.todayIso()
+        val previousToday = todayIsoFlow.value
+        if (latestToday != previousToday) {
+            todayIsoFlow.value = latestToday
+            if (selectedDateIsoFlow.value == previousToday) {
+                selectedDateIsoFlow.value = latestToday
+            }
+        }
+    }
+
     fun selectPeriod(period: HistoryPeriod) {
+        refreshTodayIfNeeded()
         selectedPeriodFlow.value = period
     }
 
     fun selectDate(dateIso: String) {
         val today = DateUtils.todayIso()
+        todayIsoFlow.value = today
         selectedDateIsoFlow.value = if (dateIso > today) today else dateIso
     }
 

@@ -1,5 +1,9 @@
 package com.example.navigation
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -41,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -129,8 +134,19 @@ fun HydrateNavHost(
         }
     }
 
+    val context = LocalContext.current
     val showChrome = currentDestination != null && !currentDestination.hasRoute(OnboardingRoute::class)
+    val isHomeTab = currentDestination?.hasRoute(HomeRoute::class) == true
     val startDestination: Any = remember { if (onboardingCompleted) HomeRoute else OnboardingRoute }
+
+    if (showChrome) {
+        BackHandler(enabled = !isHomeTab) {
+            navigateToTab(HomeRoute)
+        }
+        BackHandler(enabled = isHomeTab) {
+            context.findActivity()?.finish()
+        }
+    }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val useNavRail = maxWidth >= 600.dp
@@ -314,4 +330,10 @@ fun HydrateNavHost(
             }
         }
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

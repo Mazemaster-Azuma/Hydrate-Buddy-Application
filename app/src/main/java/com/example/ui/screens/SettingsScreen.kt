@@ -503,7 +503,7 @@ fun SettingsScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Preview Water-Harp Ringtone")
+                        Text("Test Ringtone")
                     }
                 }
             }

@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -75,6 +74,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
 import com.example.database.WaterEntryEntity
@@ -90,6 +91,7 @@ import com.example.utils.DateUtils
 import com.example.utils.UnitConverter
 import com.example.viewmodel.HistoryViewModel
 import kotlinx.coroutines.launch
+import java.util.Calendar
 
 @Composable
 fun HistoryScreen(
@@ -102,6 +104,10 @@ fun HistoryScreen(
     val undoLabel = stringResource(R.string.home_undo_action)
     var editingEntry by remember { mutableStateOf<WaterEntryEntity?>(null) }
     var showAddForDateDialog by remember { mutableStateOf(false) }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        viewModel.refreshTodayIfNeeded()
+    }
 
     when (val state = uiState) {
         is HistoryUiState.Loading -> {
@@ -252,7 +258,10 @@ fun HistoryScreen(
                                     monthlyAverageMl = state.monthlyAverageMl,
                                     goalsMetCount = state.monthlyGoalsMetCount,
                                     unit = state.unit,
-                                    onSelectDate = viewModel::selectDate
+                                    onSelectDate = viewModel::selectDate,
+                                    onPrevMonth = { viewModel.stepDate(-1) },
+                                    onNextMonth = { viewModel.stepDate(1) },
+                                    onJumpCurrentMonth = { viewModel.selectDate(DateUtils.todayIso()) }
                                 )
                             }
                         }
@@ -692,19 +701,41 @@ private fun MonthlyOverviewCard(
     monthlyAverageMl: Int,
     goalsMetCount: Int,
     unit: MeasurementUnit,
-    onSelectDate: (String) -> Unit
+    onSelectDate: (String) -> Unit,
+    onPrevMonth: () -> Unit,
+    onNextMonth: () -> Unit,
+    onJumpCurrentMonth: () -> Unit
 ) {
     val primary = MaterialTheme.colorScheme.primary
+    val onPrimary = MaterialTheme.colorScheme.onPrimary
     val success = LocalHydrateColors.current.success
     val track = LocalHydrateColors.current.waterRingTrack
     val selectedBorderColor = MaterialTheme.colorScheme.tertiary
     val cellShape = MaterialTheme.shapes.small
-    val futureCellColor = remember(track) { track.copy(alpha = 0.28f) }
+    val futureCellColor = remember(track) { track.copy(alpha = 0.25f) }
     val emptyCellColor = remember(track) { track.copy(alpha = 0.55f) }
-    val mediumCellColor = remember(primary) { primary.copy(alpha = 0.72f) }
+    val mediumCellColor = remember(primary) { primary.copy(alpha = 0.85f) }
     val lowCellColor = remember(primary) { primary.copy(alpha = 0.34f) }
     val futureTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-    val rows = remember(days) { days.chunked(7) }
+
+    val todayIso = remember(days, selectedDateIso) { DateUtils.todayIso() }
+    val isCurrentMonth = remember(selectedDateIso, todayIso) {
+        selectedDateIso.take(7) >= todayIso.take(7)
+    }
+
+    val rows = remember(days) {
+        val leadingEmpty = days.firstOrNull()?.let { firstDay ->
+            val cal = DateUtils.parseIsoToCalendar(firstDay.dateIso)
+            (cal.get(Calendar.DAY_OF_WEEK) - Calendar.SUNDAY + 7) % 7
+        } ?: 0
+        val padded: List<MonthlyHeatmapDay?> = List(leadingEmpty) { null } + days
+        padded.chunked(7)
+    }
+
+    val weekdayHeaders = remember { listOf("S", "M", "T", "W", "T", "F", "S") }
+    val selectedDay = remember(days, selectedDateIso) {
+        days.firstOrNull { it.dateIso == selectedDateIso }
+    }
 
     Card(
         shape = MaterialTheme.shapes.large,
@@ -715,18 +746,79 @@ private fun MonthlyOverviewCard(
     ) {
         Column(
             modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.CalendarMonth,
-                    contentDescription = null,
-                    tint = primary
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(monthTitle, style = MaterialTheme.typography.titleMedium)
+            // Month title + direct previous/next month controls
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CalendarMonth,
+                        contentDescription = null,
+                        tint = primary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = monthTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (!isCurrentMonth) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        AssistChip(
+                            onClick = onJumpCurrentMonth,
+                            label = { Text("Now") }
+                        )
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onPrevMonth,
+                        modifier = Modifier.testTag("history_prev_month")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            contentDescription = "Previous month"
+                        )
+                    }
+                    IconButton(
+                        onClick = onNextMonth,
+                        enabled = !isCurrentMonth,
+                        modifier = Modifier.testTag("history_next_month")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = "Next month"
+                        )
+                    }
+                }
             }
 
+            // Weekday header row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                weekdayHeaders.forEach { dayLabel ->
+                    Text(
+                        text = dayLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            // Weekday-aligned calendar grid
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 rows.forEach { week ->
                     Row(
@@ -736,7 +828,11 @@ private fun MonthlyOverviewCard(
                         for (i in 0 until 7) {
                             val day = week.getOrNull(i)
                             if (day == null) {
-                                Spacer(modifier = Modifier.weight(1f))
+                                Spacer(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(42.dp)
+                                )
                             } else {
                                 val bgColor = when {
                                     day.isFuture -> futureCellColor
@@ -746,9 +842,11 @@ private fun MonthlyOverviewCard(
                                     else -> emptyCellColor
                                 }
                                 val isSelected = day.dateIso == selectedDateIso
+                                val isDayToday = day.dateIso == todayIso
                                 val textColor = when {
                                     day.isFuture -> futureTextColor
-                                    day.completionFraction >= 0.6f -> Color.White
+                                    day.completionFraction >= 1f -> Color.White
+                                    day.completionFraction >= 0.6f -> onPrimary
                                     else -> MaterialTheme.colorScheme.onSurface
                                 }
 
@@ -756,24 +854,25 @@ private fun MonthlyOverviewCard(
                                     contentAlignment = Alignment.Center,
                                     modifier = Modifier
                                         .weight(1f)
-                                        .aspectRatio(1f)
+                                        .height(42.dp)
                                         .clip(cellShape)
                                         .background(bgColor)
                                         .then(
-                                            if (isSelected) {
-                                                Modifier.border(2.dp, selectedBorderColor, cellShape)
-                                            } else {
-                                                Modifier
+                                            when {
+                                                isSelected -> Modifier.border(2.dp, selectedBorderColor, cellShape)
+                                                isDayToday -> Modifier.border(1.5.dp, primary, cellShape)
+                                                else -> Modifier
                                             }
                                         )
                                         .clickable(enabled = !day.isFuture) {
                                             onSelectDate(day.dateIso)
                                         }
+                                        .testTag("month_day_${day.dateIso}")
                                 ) {
                                     Text(
                                         text = day.dayOfMonth.toString(),
                                         style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        fontWeight = if (isSelected || isDayToday) FontWeight.Bold else FontWeight.Medium,
                                         color = textColor
                                     )
                                 }
@@ -781,6 +880,52 @@ private fun MonthlyOverviewCard(
                         }
                     }
                 }
+            }
+
+            // Instant selected-day breakdown strip
+            if (selectedDay != null) {
+                val pct = ((selectedDay.totalMl.toFloat() / selectedDay.goalMl.coerceAtLeast(1)) * 100f)
+                    .toInt()
+                    .coerceIn(0, 999)
+                Surface(
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = DateUtils.formatDisplayDate(selectedDay.dateIso),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "${UnitConverter.formatVolume(selectedDay.totalMl, unit)} / " +
+                                "${UnitConverter.formatVolume(selectedDay.goalMl, unit)} ($pct%)",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = primary
+                        )
+                    }
+                }
+            }
+
+            // Compact color legend
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                LegendChip(color = emptyCellColor, label = "0%")
+                LegendChip(color = lowCellColor, label = "<60%")
+                LegendChip(color = mediumCellColor, label = "60%+")
+                LegendChip(color = success, label = "Goal")
             }
 
             Row(
@@ -793,7 +938,7 @@ private fun MonthlyOverviewCard(
                     modifier = Modifier.weight(1f)
                 )
                 StatPillCard(
-                    label = "Daily Avg",
+                    label = "Active Avg",
                     value = UnitConverter.formatVolume(monthlyAverageMl, unit),
                     modifier = Modifier.weight(1f)
                 )
@@ -804,6 +949,29 @@ private fun MonthlyOverviewCard(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun LegendChip(
+    color: Color,
+    label: String
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .clip(MaterialTheme.shapes.extraSmall)
+                .background(color)
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
