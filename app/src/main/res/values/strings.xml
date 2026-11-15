@@ -1,0 +1,42 @@
+<resources>
+    <string name="app_name">Hydrate Buddy</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_history">History</string>
+    <string name="nav_achievements">Rewards</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_headline">Meet your new hydration buddy!</string>
+    <string name="onboarding_subtitle">Build a refreshing daily water habit with Droplet, gentle reminders, and cheerful milestones.</string>
+    <string name="onboarding_name_label">Your name (optional)</string>
+    <string name="onboarding_name_placeholder">e.g., Alex</string>
+    <string name="onboarding_unit_label">Preferred unit</string>
+    <string name="onboarding_goal_label">Daily hydration target</string>
+    <string name="onboarding_goal_note">Choose a target that fits your daily routine and lifestyle. This is a personal wellness habit tracker, not medical advice.</string>
+    <string name="onboarding_schedule_label">Waking hours &amp; reminders</string>
+    <string name="onboarding_wake_time">Wake-up</string>
+    <string name="onboarding_bed_time">Bedtime</string>
+    <string name="onboarding_interval_label">Reminder interval</string>
+    <string name="onboarding_start_button">Start Hydrating</string>
+
+    <!-- Home -->
+    <string name="home_quick_add_title">Quick Add</string>
+    <string name="home_custom_add">Custom</string>
+    <string name="home_today_log_title">Today\'s Sips</string>
+    <string name="home_empty_log_title">No sips logged yet today</string>
+    <string name="home_empty_log_subtitle">Tap a quick-add button above to give Droplet a refreshing splash!</string>
+    <string name="home_undo_action">Undo</string>
+    <string name="home_remaining_label">Remaining</string>
+    <string name="home_goal_reached_badge">Goal Reached!</string>
+
+    <!-- Notifications -->
+    <string name="notification_channel_name">Hydration Reminders</string>
+    <string name="notification_channel_desc">Gentle reminders from Droplet during your waking hours.</string>
+    <string name="notification_action_log_250">Log %1$s</string>
+    <string name="notification_action_dismiss">Later</string>
+
+    <!-- About -->
+    <string name="about_description">Hydrate Buddy is an offline-first hydration habit companion. All your water logs, streaks, and preferences stay privately on your device.</string>
+</resources>

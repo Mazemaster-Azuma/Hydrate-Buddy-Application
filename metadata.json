@@ -1,0 +1,6 @@
+{
+  "name": "Hydrate Buddy",
+  "description": "A gamified offline water intake tracker featuring an expressive virtual water-drop companion, hydration analytics, achievements, and smart reminders.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
