@@ -102,7 +102,7 @@ fun AchievementsScreen(
                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    item {
+                    item(key = "achievements_title", contentType = "header") {
                         Text(
                             text = "Achievements & Rewards",
                             style = MaterialTheme.typography.headlineMedium,
@@ -111,11 +111,18 @@ fun AchievementsScreen(
                     }
 
                     // Level & XP Hero Card (tappable for Level Roadmap)
-                    item {
+                    item(key = "achievements_level_card", contentType = "level_hero") {
+                        val primaryContainer = MaterialTheme.colorScheme.primaryContainer
+                        val tertiaryContainer = MaterialTheme.colorScheme.tertiaryContainer
+                        val heroBrush = remember(primaryContainer, tertiaryContainer) {
+                            Brush.horizontalGradient(
+                                colors = listOf(primaryContainer, tertiaryContainer)
+                            )
+                        }
                         Card(
                             shape = MaterialTheme.shapes.extraLarge,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(MaterialTheme.shapes.extraLarge)
@@ -125,14 +132,7 @@ fun AchievementsScreen(
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(
-                                        Brush.horizontalGradient(
-                                            colors = listOf(
-                                                MaterialTheme.colorScheme.primaryContainer,
-                                                MaterialTheme.colorScheme.tertiaryContainer
-                                            )
-                                        )
-                                    )
+                                    .background(heroBrush)
                                     .padding(20.dp),
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
@@ -204,7 +204,7 @@ fun AchievementsScreen(
                     }
 
                     // Streak & Lifetime Summary Row
-                    item {
+                    item(key = "achievements_metrics", contentType = "metrics_row") {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -234,7 +234,7 @@ fun AchievementsScreen(
                     }
 
                     // Filter Chips
-                    item {
+                    item(key = "achievements_filters", contentType = "filter_chips") {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             AchievementFilter.entries.forEach { filter ->
                                 FilterChip(
@@ -248,7 +248,7 @@ fun AchievementsScreen(
                     }
 
                     if (state.achievements.isEmpty()) {
-                        item {
+                        item(key = "achievements_empty", contentType = "empty_state") {
                             Card(
                                 shape = MaterialTheme.shapes.large,
                                 colors = CardDefaults.cardColors(
@@ -284,7 +284,11 @@ fun AchievementsScreen(
                             }
                         }
                     } else {
-                        items(state.achievements, key = { it.id }) { achievement ->
+                        items(
+                            items = state.achievements,
+                            key = { it.id },
+                            contentType = { "achievement_item" }
+                        ) { achievement ->
                             AchievementItemCard(
                                 achievement = achievement,
                                 onClick = { selectedAchievement = achievement }
@@ -292,7 +296,7 @@ fun AchievementsScreen(
                         }
                     }
 
-                    item { Spacer(modifier = Modifier.height(8.dp)) }
+                    item(key = "achievements_bottom_spacer", contentType = "spacer") { Spacer(modifier = Modifier.height(8.dp)) }
                 }
             }
         }
@@ -349,6 +353,12 @@ private fun AchievementItemCard(
     val progress = (achievement.progressCurrent.toFloat() / achievement.progressTarget.coerceAtLeast(1))
         .coerceIn(0f, 1f)
 
+    val unlockedDateText = remember(achievement.unlockedAtMillis) {
+        achievement.unlockedAtMillis?.let {
+            "Unlocked • ${DateUtils.formatDisplayDate(DateUtils.isoFromTimestamp(it))}"
+        }
+    }
+
     Card(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
@@ -359,7 +369,7 @@ private fun AchievementItemCard(
             }
         ),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (achievement.isUnlocked) 1.dp else 0.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
@@ -440,9 +450,9 @@ private fun AchievementItemCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                if (achievement.isUnlocked && achievement.unlockedAtMillis != null) {
+                if (achievement.isUnlocked && unlockedDateText != null) {
                     Text(
-                        text = "Unlocked • ${DateUtils.formatDisplayDate(DateUtils.isoFromTimestamp(achievement.unlockedAtMillis))}",
+                        text = unlockedDateText,
                         style = MaterialTheme.typography.labelSmall,
                         color = extendedColors.success,
                         fontWeight = FontWeight.SemiBold

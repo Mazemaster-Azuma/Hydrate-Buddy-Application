@@ -2,6 +2,8 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -101,17 +104,21 @@ fun HistoryScreen(
             }
         }
         is HistoryUiState.Success -> {
-            val deleteWithUndo: (WaterEntryEntity) -> Unit = { entry ->
-                viewModel.deleteEntry(entry.id)
-                scope.launch {
-                    snackbarHostState.currentSnackbarData?.dismiss()
-                    val result = snackbarHostState.showSnackbar(
-                        message = "Removed ${UnitConverter.formatVolume(entry.amountMl, state.unit)}",
-                        actionLabel = undoLabel,
-                        duration = SnackbarDuration.Short
-                    )
-                    if (result == SnackbarResult.ActionPerformed) {
-                        viewModel.restoreEntry(entry)
+            val currentUnit by rememberUpdatedState(state.unit)
+            val deleteWithUndo: (WaterEntryEntity) -> Unit = remember(viewModel, scope, snackbarHostState, undoLabel) {
+                { entry ->
+                    val unitSnapshot = currentUnit
+                    viewModel.deleteEntry(entry.id)
+                    scope.launch {
+                        snackbarHostState.currentSnackbarData?.dismiss()
+                        val result = snackbarHostState.showSnackbar(
+                            message = "Removed ${UnitConverter.formatVolume(entry.amountMl, unitSnapshot)}",
+                            actionLabel = undoLabel,
+                            duration = SnackbarDuration.Short
+                        )
+                        if (result == SnackbarResult.ActionPerformed) {
+                            viewModel.restoreEntry(entry)
+                        }
                     }
                 }
             }
@@ -159,7 +166,7 @@ fun HistoryScreen(
                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    item {
+                    item(key = "history_title", contentType = "header") {
                         Text(
                             text = "Hydration History",
                             style = MaterialTheme.typography.headlineMedium,
@@ -168,7 +175,7 @@ fun HistoryScreen(
                     }
 
                     // Period Selector
-                    item {
+                    item(key = "history_period", contentType = "period_selector") {
                         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                             HistoryPeriod.entries.forEachIndexed { index, period ->
                                 SegmentedButton(
@@ -192,20 +199,23 @@ fun HistoryScreen(
                     }
 
                     // Date selector bar
-                    item {
+                    item(key = "history_date_stepper", contentType = "date_stepper") {
+                        val onPrev = remember(viewModel) { { viewModel.stepDate(-1) } }
+                        val onNext = remember(viewModel) { { viewModel.stepDate(1) } }
+                        val onJumpToday = remember(viewModel) { { viewModel.selectDate(DateUtils.todayIso()) } }
                         DateStepperCard(
                             dateLabel = state.selectedDateLabel,
                             isToday = state.isToday,
-                            onPrev = { viewModel.stepDate(-1) },
-                            onNext = { viewModel.stepDate(1) },
-                            onJumpToday = { viewModel.selectDate(DateUtils.todayIso()) }
+                            onPrev = onPrev,
+                            onNext = onNext,
+                            onJumpToday = onJumpToday
                         )
                     }
 
                     // Period Visualization
                     when (state.selectedPeriod) {
                         HistoryPeriod.DAY -> {
-                            item {
+                            item(key = "history_day_summary", contentType = "day_summary") {
                                 DaySummaryCard(
                                     totalMl = state.selectedDayTotalMl,
                                     goalMl = state.selectedDayGoalMl,
@@ -215,7 +225,7 @@ fun HistoryScreen(
                             }
                         }
                         HistoryPeriod.WEEK -> {
-                            item {
+                            item(key = "history_weekly_chart", contentType = "weekly_chart") {
                                 WeeklyChartCard(
                                     points = state.weeklyPoints,
                                     selectedDateIso = state.selectedDateIso,
@@ -227,7 +237,7 @@ fun HistoryScreen(
                             }
                         }
                         HistoryPeriod.MONTH -> {
-                            item {
+                            item(key = "history_monthly_overview", contentType = "monthly_overview") {
                                 MonthlyOverviewCard(
                                     monthTitle = state.monthTitle,
                                     days = state.monthlyDays,
@@ -243,7 +253,7 @@ fun HistoryScreen(
                     }
 
                     // Selected day breakdown header + Log for Date action
-                    item {
+                    item(key = "history_day_header", contentType = "day_header") {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -279,7 +289,7 @@ fun HistoryScreen(
                     }
 
                     if (state.selectedDayEntries.isEmpty()) {
-                        item {
+                        item(key = "history_empty_day", contentType = "empty_day") {
                             Card(
                                 shape = MaterialTheme.shapes.large,
                                 colors = CardDefaults.cardColors(
@@ -315,7 +325,11 @@ fun HistoryScreen(
                             }
                         }
                     } else {
-                        items(state.selectedDayEntries, key = { it.id }) { entry ->
+                        items(
+                            items = state.selectedDayEntries,
+                            key = { it.id },
+                            contentType = { "water_entry" }
+                        ) { entry ->
                             WaterEntryRowCard(
                                 entry = entry,
                                 unit = state.unit,
@@ -325,7 +339,7 @@ fun HistoryScreen(
                         }
                     }
 
-                    item { Spacer(modifier = Modifier.height(8.dp)) }
+                    item(key = "history_bottom_spacer", contentType = "spacer") { Spacer(modifier = Modifier.height(8.dp)) }
                 }
             }
         }
@@ -407,7 +421,7 @@ private fun DaySummaryCard(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -476,7 +490,7 @@ private fun WeeklyChartCard(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -504,12 +518,20 @@ private fun WeeklyChartCard(
                 )
             }
 
-            val maxVal = maxOf(
-                points.maxOfOrNull { maxOf(it.totalMl, it.goalMl) } ?: 2000,
-                1000
-            )
+            val maxVal = remember(points) {
+                maxOf(
+                    points.maxOfOrNull { maxOf(it.totalMl, it.goalMl) } ?: 2000,
+                    1000
+                )
+            }
             val goalVal = points.lastOrNull()?.goalMl ?: 2000
             val goalDashEffect = remember { PathEffect.dashPathEffect(floatArrayOf(12f, 10f), 0f) }
+            val trackBgColor = remember(trackColor) { trackColor.copy(alpha = 0.45f) }
+            val successBrush = remember(success, secondary) { Brush.verticalGradient(listOf(success, secondary)) }
+            val selectedBrush = remember(primary, secondary) { Brush.verticalGradient(listOf(primary, secondary)) }
+            val defaultBrush = remember(primary) {
+                Brush.verticalGradient(listOf(primary.copy(alpha = 0.78f), primary.copy(alpha = 0.55f)))
+            }
 
             // Overlay clickable columns over the Canvas so vertical scrolling is never intercepted
             Box(
@@ -521,10 +543,13 @@ private fun WeeklyChartCard(
                     val count = points.size.coerceAtLeast(1)
                     val slotWidth = size.width / count
                     val barWidth = slotWidth * 0.52f
+                    val topPadPx = 6.dp.toPx()
                     val chartHeight = size.height - 12.dp.toPx()
+                    val barRadiusPx = 10.dp.toPx()
+                    val barRadius = CornerRadius(barRadiusPx, barRadiusPx)
 
                     val goalRatio = (goalVal.toFloat() / maxVal.toFloat()).coerceIn(0f, 1f)
-                    val goalY = chartHeight * (1f - goalRatio) + 6.dp.toPx()
+                    val goalY = chartHeight * (1f - goalRatio) + topPadPx
                     drawLine(
                         color = outlineColor,
                         start = Offset(0f, goalY),
@@ -535,11 +560,10 @@ private fun WeeklyChartCard(
 
                     points.forEachIndexed { idx, point ->
                         val left = idx * slotWidth + (slotWidth - barWidth) / 2f
-                        val barRadius = CornerRadius(10.dp.toPx(), 10.dp.toPx())
 
                         drawRoundRect(
-                            color = trackColor.copy(alpha = 0.45f),
-                            topLeft = Offset(left, 6.dp.toPx()),
+                            color = trackBgColor,
+                            topLeft = Offset(left, topPadPx),
                             size = Size(barWidth, chartHeight),
                             cornerRadius = barRadius
                         )
@@ -547,12 +571,12 @@ private fun WeeklyChartCard(
                         if (point.totalMl > 0) {
                             val hRatio = (point.totalMl.toFloat() / maxVal.toFloat()).coerceIn(0.05f, 1f)
                             val barH = chartHeight * hRatio
-                            val top = 6.dp.toPx() + (chartHeight - barH)
+                            val top = topPadPx + (chartHeight - barH)
                             val isSelected = point.dateIso == selectedDateIso
                             val barBrush = when {
-                                point.completionPercent >= 100 -> Brush.verticalGradient(listOf(success, secondary))
-                                isSelected -> Brush.verticalGradient(listOf(primary, secondary))
-                                else -> Brush.verticalGradient(listOf(primary.copy(alpha = 0.78f), primary.copy(alpha = 0.55f)))
+                                point.completionPercent >= 100 -> successBrush
+                                isSelected -> selectedBrush
+                                else -> defaultBrush
                             }
                             drawRoundRect(
                                 brush = barBrush,
@@ -637,12 +661,20 @@ private fun MonthlyOverviewCard(
     val primary = MaterialTheme.colorScheme.primary
     val success = LocalHydrateColors.current.success
     val track = LocalHydrateColors.current.waterRingTrack
+    val selectedBorderColor = MaterialTheme.colorScheme.tertiary
+    val cellShape = MaterialTheme.shapes.small
+    val futureCellColor = remember(track) { track.copy(alpha = 0.28f) }
+    val emptyCellColor = remember(track) { track.copy(alpha = 0.55f) }
+    val mediumCellColor = remember(primary) { primary.copy(alpha = 0.72f) }
+    val lowCellColor = remember(primary) { primary.copy(alpha = 0.34f) }
+    val futureTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+    val rows = remember(days) { days.chunked(7) }
 
     Card(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -659,7 +691,6 @@ private fun MonthlyOverviewCard(
                 Text(monthTitle, style = MaterialTheme.typography.titleMedium)
             }
 
-            val rows = days.chunked(7)
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 rows.forEach { week ->
                     Row(
@@ -672,39 +703,43 @@ private fun MonthlyOverviewCard(
                                 Spacer(modifier = Modifier.weight(1f))
                             } else {
                                 val bgColor = when {
-                                    day.isFuture -> track.copy(alpha = 0.28f)
+                                    day.isFuture -> futureCellColor
                                     day.completionFraction >= 1f -> success
-                                    day.completionFraction >= 0.6f -> primary.copy(alpha = 0.72f)
-                                    day.completionFraction > 0f -> primary.copy(alpha = 0.34f)
-                                    else -> track.copy(alpha = 0.55f)
+                                    day.completionFraction >= 0.6f -> mediumCellColor
+                                    day.completionFraction > 0f -> lowCellColor
+                                    else -> emptyCellColor
                                 }
                                 val isSelected = day.dateIso == selectedDateIso
                                 val textColor = when {
-                                    day.completionFraction >= 0.6f && !day.isFuture -> Color.White
+                                    day.isFuture -> futureTextColor
+                                    day.completionFraction >= 0.6f -> Color.White
                                     else -> MaterialTheme.colorScheme.onSurface
                                 }
 
-                                Surface(
-                                    shape = MaterialTheme.shapes.small,
-                                    color = bgColor,
-                                    border = if (isSelected) {
-                                        androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.tertiary)
-                                    } else null,
+                                Box(
+                                    contentAlignment = Alignment.Center,
                                     modifier = Modifier
                                         .weight(1f)
                                         .aspectRatio(1f)
+                                        .clip(cellShape)
+                                        .background(bgColor)
+                                        .then(
+                                            if (isSelected) {
+                                                Modifier.border(2.dp, selectedBorderColor, cellShape)
+                                            } else {
+                                                Modifier
+                                            }
+                                        )
                                         .clickable(enabled = !day.isFuture) {
                                             onSelectDate(day.dateIso)
                                         }
                                 ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(
-                                            text = day.dayOfMonth.toString(),
-                                            style = MaterialTheme.typography.labelMedium,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (day.isFuture) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f) else textColor
-                                        )
-                                    }
+                                    Text(
+                                        text = day.dayOfMonth.toString(),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = textColor
+                                    )
                                 }
                             }
                         }

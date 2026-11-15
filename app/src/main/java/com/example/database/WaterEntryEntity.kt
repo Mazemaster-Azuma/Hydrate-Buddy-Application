@@ -1,9 +1,11 @@
 package com.example.database
 
+import androidx.compose.runtime.Immutable
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
+@Immutable
 @Entity(
     tableName = "water_entries",
     indices = [Index(value = ["dateIso"]), Index(value = ["timestampMillis"])]

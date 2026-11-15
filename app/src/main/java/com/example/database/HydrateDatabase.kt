@@ -42,6 +42,7 @@ abstract class HydrateDatabase : RoomDatabase() {
                     HydrateDatabase::class.java,
                     "hydrate_buddy_db"
                 )
+                    .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
                     .addMigrations(MIGRATION_1_2)
                     .build()
                     .also { INSTANCE = it }

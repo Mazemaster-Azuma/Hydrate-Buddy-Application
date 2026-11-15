@@ -205,13 +205,42 @@ fun HydrateNavHost(
                     VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
 
+                val onOnboardingCompleted = remember(navController) {
+                    {
+                        navController.navigate(HomeRoute) {
+                            popUpTo(0) {
+                                inclusive = true
+                            }
+                            launchSingleTop = true
+                        }
+                    }
+                }
+                val onNavigateToAchievements = remember(navigateToTab) {
+                    { navigateToTab(AchievementsRoute) }
+                }
+                val onDataCleared = remember(navController) {
+                    {
+                        navController.navigate(OnboardingRoute) {
+                            popUpTo(0) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    }
+                }
+                val onRevisitOnboarding = remember(navController) {
+                    {
+                        navController.navigate(OnboardingRoute) {
+                            launchSingleTop = true
+                        }
+                    }
+                }
+
                 NavHost(
                     navController = navController,
                     startDestination = startDestination,
-                    enterTransition = { fadeIn(animationSpec = tween(180)) },
-                    exitTransition = { fadeOut(animationSpec = tween(140)) },
-                    popEnterTransition = { fadeIn(animationSpec = tween(180)) },
-                    popExitTransition = { fadeOut(animationSpec = tween(140)) },
+                    enterTransition = { fadeIn(animationSpec = tween(90)) },
+                    exitTransition = { fadeOut(animationSpec = tween(70)) },
+                    popEnterTransition = { fadeIn(animationSpec = tween(90)) },
+                    popExitTransition = { fadeOut(animationSpec = tween(70)) },
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
@@ -220,14 +249,7 @@ fun HydrateNavHost(
                         val onboardingViewModel: OnboardingViewModel = viewModel(factory = viewModelFactory)
                         OnboardingScreen(
                             viewModel = onboardingViewModel,
-                            onCompleted = {
-                                navController.navigate(HomeRoute) {
-                                    popUpTo(0) {
-                                        inclusive = true
-                                    }
-                                    launchSingleTop = true
-                                }
-                            }
+                            onCompleted = onOnboardingCompleted
                         )
                     }
 
@@ -237,7 +259,7 @@ fun HydrateNavHost(
                             viewModel = homeViewModel,
                             vibrationEnabled = vibrationEnabled,
                             snackbarHostState = snackbarHostState,
-                            onNavigateToAchievements = { navigateToTab(AchievementsRoute) }
+                            onNavigateToAchievements = onNavigateToAchievements
                         )
                     }
 
@@ -259,17 +281,8 @@ fun HydrateNavHost(
                         SettingsScreen(
                             viewModel = settingsViewModel,
                             snackbarHostState = snackbarHostState,
-                            onDataCleared = {
-                                navController.navigate(OnboardingRoute) {
-                                    popUpTo(0) { inclusive = true }
-                                    launchSingleTop = true
-                                }
-                            },
-                            onRevisitOnboarding = {
-                                navController.navigate(OnboardingRoute) {
-                                    launchSingleTop = true
-                                }
-                            }
+                            onDataCleared = onDataCleared,
+                            onRevisitOnboarding = onRevisitOnboarding
                         )
                     }
                 }

@@ -7,10 +7,13 @@ import com.example.model.AchievementsUiState
 import com.example.repository.HydrationRepository
 import com.example.utils.DateUtils
 import com.example.utils.GamificationUtils
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 
 class AchievementsViewModel(
@@ -57,11 +60,14 @@ class AchievementsViewModel(
             unlockedCount = allAchievements.count { it.isUnlocked },
             totalCount = allAchievements.size
         )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = AchievementsUiState.Loading
-    )
+    }
+        .flowOn(Dispatchers.Default)
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = AchievementsUiState.Loading
+        )
 
     fun setFilter(filter: AchievementFilter) {
         filterFlow.value = filter

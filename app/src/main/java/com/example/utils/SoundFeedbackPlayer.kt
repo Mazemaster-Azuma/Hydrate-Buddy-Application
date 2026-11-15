@@ -22,29 +22,33 @@ object SoundFeedbackPlayer {
     @Volatile
     private var activePreviewPlayer: MediaPlayer? = null
 
+    private const val SAMPLE_RATE = 22050
+    private val normalChimeSamples: ShortArray by lazy {
+        val numSamples = (SAMPLE_RATE * 220) / 1000
+        val buf = DoubleArray(numSamples)
+        addWaterBubble(buf, SAMPLE_RATE, startSec = 0.0, fStart = 500.0, fEnd = 1240.0, durSec = 0.085, amp = 0.45)
+        addCrystalBell(buf, SAMPLE_RATE, startSec = 0.06, freq = 1046.50, durSec = 0.15, amp = 0.18)
+        toPcm16(buf)
+    }
+    private val goalChimeSamples: ShortArray by lazy {
+        val numSamples = (SAMPLE_RATE * 420) / 1000
+        val buf = DoubleArray(numSamples)
+        addWaterBubble(buf, SAMPLE_RATE, startSec = 0.0, fStart = 500.0, fEnd = 1240.0, durSec = 0.085, amp = 0.45)
+        addWaterBubble(buf, SAMPLE_RATE, startSec = 0.095, fStart = 680.0, fEnd = 1580.0, durSec = 0.085, amp = 0.40)
+        addCrystalBell(buf, SAMPLE_RATE, startSec = 0.14, freq = 1046.50, durSec = 0.27, amp = 0.28)
+        addCrystalBell(buf, SAMPLE_RATE, startSec = 0.20, freq = 1567.98, durSec = 0.21, amp = 0.22)
+        toPcm16(buf)
+    }
+
     /**
      * Synthesizes a realistic, refreshing liquid water-droplet chime offline.
      * Safely ignores any device audio restrictions or emulator absence.
      */
     suspend fun playWaterDropChime(isGoalReached: Boolean = false) = withContext(Dispatchers.Default) {
         runCatching {
-            val sampleRate = 22050
             val durationMs = if (isGoalReached) 420 else 220
-            val numSamples = (sampleRate * durationMs) / 1000
-            val buf = DoubleArray(numSamples)
-
-            addWaterBubble(buf, sampleRate, startSec = 0.0, fStart = 500.0, fEnd = 1240.0, durSec = 0.085, amp = 0.45)
-
-            if (isGoalReached) {
-                addWaterBubble(buf, sampleRate, startSec = 0.095, fStart = 680.0, fEnd = 1580.0, durSec = 0.085, amp = 0.40)
-                addCrystalBell(buf, sampleRate, startSec = 0.14, freq = 1046.50, durSec = 0.27, amp = 0.28)
-                addCrystalBell(buf, sampleRate, startSec = 0.20, freq = 1567.98, durSec = 0.21, amp = 0.22)
-            } else {
-                addCrystalBell(buf, sampleRate, startSec = 0.06, freq = 1046.50, durSec = 0.15, amp = 0.18)
-            }
-
-            val samples = toPcm16(buf)
-            playPcmStatic(sampleRate, samples, durationMs, AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+            val samples = if (isGoalReached) goalChimeSamples else normalChimeSamples
+            playPcmStatic(SAMPLE_RATE, samples, durationMs, AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
         }
     }
 

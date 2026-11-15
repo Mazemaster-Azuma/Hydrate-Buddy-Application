@@ -2,12 +2,14 @@ package com.example.notifications
 
 import android.content.Context
 import android.content.Intent
+import androidx.compose.runtime.Immutable
 import androidx.core.content.ContextCompat
 import com.example.model.MeasurementUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+@Immutable
 data class AlarmRingState(
     val userName: String,
     val totalMl: Int,

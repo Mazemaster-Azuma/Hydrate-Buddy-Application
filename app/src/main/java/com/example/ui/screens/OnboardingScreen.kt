@@ -121,20 +121,23 @@ fun OnboardingScreen(
         }
     }
 
-    val intervals = listOf(30, 60, 90, 120, 180)
-    val suggestedGoals = UnitConverter.suggestedDailyGoalsMl(state.unit)
+    val intervals = remember { listOf(30, 60, 90, 120, 180) }
+    val suggestedGoals = remember(state.unit) { UnitConverter.suggestedDailyGoalsMl(state.unit) }
+    val wakeTimeLabel = remember(state.wakeHour, state.wakeMinute) {
+        DateUtils.formatHourMinute(state.wakeHour, state.wakeMinute)
+    }
+    val bedTimeLabel = remember(state.bedHour, state.bedMinute) {
+        DateUtils.formatHourMinute(state.bedHour, state.bedMinute)
+    }
+    val bgColor = MaterialTheme.colorScheme.background
+    val bgBrush = remember(bgColor, extendedColors.cardGradientEnd) {
+        Brush.verticalGradient(colors = listOf(bgColor, extendedColors.cardGradientEnd))
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.background,
-                        extendedColors.cardGradientEnd
-                    )
-                )
-            )
+            .background(bgBrush)
             .imePadding(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -148,7 +151,7 @@ fun OnboardingScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            item {
+            item(key = "onboarding_hero", contentType = "hero") {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -173,12 +176,12 @@ fun OnboardingScreen(
             }
 
             // Name & Unit Card
-            item {
+            item(key = "onboarding_name_unit", contentType = "section_card") {
                 Card(
                     shape = MaterialTheme.shapes.large,
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
@@ -235,12 +238,12 @@ fun OnboardingScreen(
             }
 
             // Daily Goal Card
-            item {
+            item(key = "onboarding_goal", contentType = "section_card") {
                 Card(
                     shape = MaterialTheme.shapes.large,
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
@@ -316,12 +319,12 @@ fun OnboardingScreen(
             }
 
             // Waking hours & Reminders Card
-            item {
+            item(key = "onboarding_schedule", contentType = "section_card") {
                 Card(
                     shape = MaterialTheme.shapes.large,
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
@@ -382,7 +385,7 @@ fun OnboardingScreen(
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = DateUtils.formatHourMinute(state.wakeHour, state.wakeMinute),
+                                        text = wakeTimeLabel,
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -413,7 +416,7 @@ fun OnboardingScreen(
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = DateUtils.formatHourMinute(state.bedHour, state.bedMinute),
+                                        text = bedTimeLabel,
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold
                                     )

@@ -12,10 +12,12 @@ import com.example.model.DrinkType
 import com.example.model.UserPreferences
 import com.example.utils.DateUtils
 import com.example.utils.GamificationUtils
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 class HydrationRepository(
     private val database: HydrateDatabase,
@@ -27,6 +29,8 @@ class HydrationRepository(
     private val userPreferencesDao = database.userPreferencesDao()
 
     private val writeMutex = Mutex()
+    @Volatile
+    private var achievementsSeeded = false
 
     val preferencesFlow: Flow<UserPreferences> = preferencesDataStore.preferencesFlow
 
@@ -55,41 +59,50 @@ class HydrationRepository(
         achievementXp + (entryCount * 10) + (goalsMetDays * 25)
     }
 
-    suspend fun ensureInitialized() {
-        achievementDao.insertAllIfAbsent(AchievementCatalog.initialAchievements())
-        val prefs = preferencesDataStore.getCurrentPreferences()
-        syncPreferencesToRoom(prefs)
+    private suspend fun ensureAchievementsSeededLocked() {
+        if (!achievementsSeeded) {
+            achievementDao.insertAllIfAbsent(AchievementCatalog.initialAchievements())
+            achievementsSeeded = true
+        }
+    }
+
+    suspend fun ensureInitialized() = withContext(Dispatchers.IO) {
+        writeMutex.withLock {
+            ensureAchievementsSeededLocked()
+            val prefs = preferencesDataStore.getCurrentPreferences()
+            syncPreferencesToRoom(prefs)
+        }
     }
 
     suspend fun getCurrentPreferences(): UserPreferences =
         preferencesDataStore.getCurrentPreferences()
 
-    suspend fun updatePreferences(transform: (UserPreferences) -> UserPreferences): UserPreferences {
-        return writeMutex.withLock {
-            val previous = preferencesDataStore.getCurrentPreferences()
-            val updated = preferencesDataStore.updatePreferences(transform)
-            syncPreferencesToRoom(updated)
-            // Recalculate today's DailyProgress and achievements only when goal or wake window changes
-            if (updated.dailyGoalMl != previous.dailyGoalMl ||
-                updated.wakeHour != previous.wakeHour ||
-                updated.wakeMinute != previous.wakeMinute
-            ) {
-                val today = DateUtils.todayIso()
-                recalculateDailyProgressLocked(today, updated.dailyGoalMl)
-                evaluateAchievementsLocked(today, updated, System.currentTimeMillis())
+    suspend fun updatePreferences(transform: (UserPreferences) -> UserPreferences): UserPreferences =
+        withContext(Dispatchers.IO) {
+            writeMutex.withLock {
+                val previous = preferencesDataStore.getCurrentPreferences()
+                val updated = preferencesDataStore.updatePreferences(transform)
+                syncPreferencesToRoom(updated)
+                if (updated.dailyGoalMl != previous.dailyGoalMl ||
+                    updated.wakeHour != previous.wakeHour ||
+                    updated.wakeMinute != previous.wakeMinute
+                ) {
+                    val today = DateUtils.todayIso()
+                    recalculateDailyProgressLocked(today, updated.dailyGoalMl)
+                    evaluateAchievementsLocked(today, updated, System.currentTimeMillis())
+                }
+                updated
             }
-            updated
         }
-    }
 
     suspend fun addWaterEntry(
         amountMl: Int,
         drinkType: DrinkType = DrinkType.WATER,
         nowMillis: Long = System.currentTimeMillis()
-    ): AddWaterResult {
+    ): AddWaterResult = withContext(Dispatchers.IO) {
         val safeAmount = amountMl.coerceIn(10, 5000)
-        return writeMutex.withLock {
-            achievementDao.insertAllIfAbsent(AchievementCatalog.initialAchievements())
+        writeMutex.withLock {
+            ensureAchievementsSeededLocked()
             val prefs = preferencesDataStore.getCurrentPreferences()
             val today = DateUtils.isoFromTimestamp(nowMillis)
             val prevTotal = waterEntryDao.getTotalMlForDate(today)
@@ -133,10 +146,10 @@ class HydrationRepository(
         dateIso: String,
         amountMl: Int,
         drinkType: DrinkType = DrinkType.WATER
-    ) {
+    ) = withContext(Dispatchers.IO) {
         val safeAmount = amountMl.coerceIn(10, 5000)
         writeMutex.withLock {
-            achievementDao.insertAllIfAbsent(AchievementCatalog.initialAchievements())
+            ensureAchievementsSeededLocked()
             val prefs = preferencesDataStore.getCurrentPreferences()
             val cal = DateUtils.parseIsoToCalendar(dateIso).apply {
                 set(java.util.Calendar.HOUR_OF_DAY, 12)
@@ -160,7 +173,7 @@ class HydrationRepository(
         }
     }
 
-    suspend fun updateWaterEntry(entry: WaterEntryEntity) {
+    suspend fun updateWaterEntry(entry: WaterEntryEntity) = withContext(Dispatchers.IO) {
         writeMutex.withLock {
             val prefs = preferencesDataStore.getCurrentPreferences()
             waterEntryDao.updateEntry(entry)
@@ -169,7 +182,7 @@ class HydrationRepository(
         }
     }
 
-    suspend fun deleteWaterEntry(entryId: Long) {
+    suspend fun deleteWaterEntry(entryId: Long) = withContext(Dispatchers.IO) {
         writeMutex.withLock {
             val entry = waterEntryDao.getEntryById(entryId) ?: return@withLock
             val prefs = preferencesDataStore.getCurrentPreferences()
@@ -178,9 +191,9 @@ class HydrationRepository(
         }
     }
 
-    suspend fun restoreWaterEntry(entry: WaterEntryEntity) {
+    suspend fun restoreWaterEntry(entry: WaterEntryEntity) = withContext(Dispatchers.IO) {
         writeMutex.withLock {
-            achievementDao.insertAllIfAbsent(AchievementCatalog.initialAchievements())
+            ensureAchievementsSeededLocked()
             val prefs = preferencesDataStore.getCurrentPreferences()
             waterEntryDao.insertEntry(entry.copy(id = 0))
             recalculateDailyProgressLocked(entry.dateIso, prefs.dailyGoalMl)
@@ -188,7 +201,7 @@ class HydrationRepository(
         }
     }
 
-    suspend fun resetTodayProgress(todayIso: String = DateUtils.todayIso()) {
+    suspend fun resetTodayProgress(todayIso: String = DateUtils.todayIso()) = withContext(Dispatchers.IO) {
         writeMutex.withLock {
             val prefs = preferencesDataStore.getCurrentPreferences()
             waterEntryDao.deleteEntriesForDate(todayIso)
@@ -196,14 +209,15 @@ class HydrationRepository(
         }
     }
 
-    suspend fun clearAllData() {
+    suspend fun clearAllData() = withContext(Dispatchers.IO) {
         writeMutex.withLock {
             waterEntryDao.deleteAllEntries()
             dailyProgressDao.deleteAllProgress()
             achievementDao.deleteAllAchievements()
             userPreferencesDao.deleteAllPreferences()
             preferencesDataStore.clearAll()
-            achievementDao.insertAllIfAbsent(AchievementCatalog.initialAchievements())
+            achievementsSeeded = false
+            ensureAchievementsSeededLocked()
             syncPreferencesToRoom(UserPreferences())
         }
     }

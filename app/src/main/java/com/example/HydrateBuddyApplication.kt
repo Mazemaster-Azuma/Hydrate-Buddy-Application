@@ -5,6 +5,7 @@ import com.example.data.UserPreferencesDataStore
 import com.example.database.HydrateDatabase
 import com.example.notifications.NotificationHelper
 import com.example.repository.HydrationRepository
+import com.example.updater.AppUpdateCoordinator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,6 +18,9 @@ class HydrateBuddyApplication : Application() {
     val preferencesDataStore: UserPreferencesDataStore by lazy { UserPreferencesDataStore(this) }
     val repository: HydrationRepository by lazy {
         HydrationRepository(database = database, preferencesDataStore = preferencesDataStore)
+    }
+    val updateCoordinator: AppUpdateCoordinator by lazy {
+        AppUpdateCoordinator(appContext = this, repository = repository)
     }
 
     override fun onCreate() {

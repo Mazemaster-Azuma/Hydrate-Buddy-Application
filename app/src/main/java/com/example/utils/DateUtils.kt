@@ -8,13 +8,26 @@ import java.util.Locale
 object DateUtils {
     private const val ISO_PATTERN = "yyyy-MM-dd"
 
+    private val isoFormat = ThreadLocal.withInitial { SimpleDateFormat(ISO_PATTERN, Locale.US) }
+    private val displayMonthDayFormat = ThreadLocal.withInitial { SimpleDateFormat("MMM d", Locale.getDefault()) }
+    private val displayFullDateFormat = ThreadLocal.withInitial { SimpleDateFormat("EEE, MMM d", Locale.getDefault()) }
+    private val dayOfWeekShortFormat = ThreadLocal.withInitial { SimpleDateFormat("EEE", Locale.getDefault()) }
+    private val monthYearFormat = ThreadLocal.withInitial { SimpleDateFormat("MMMM yyyy", Locale.getDefault()) }
+    private val timeFormat = ThreadLocal.withInitial { SimpleDateFormat("h:mm a", Locale.getDefault()) }
+    private val sharedCalendar = ThreadLocal.withInitial { Calendar.getInstance() }
+    private val sharedDate = ThreadLocal.withInitial { Date() }
+
+    private fun getCal(): Calendar = sharedCalendar.get() ?: Calendar.getInstance()
+
+    private fun getDate(millis: Long): Date = (sharedDate.get() ?: Date()).apply { time = millis }
+
     fun todayIso(nowMillis: Long = System.currentTimeMillis()): String {
         return isoFromTimestamp(nowMillis)
     }
 
     fun isoFromTimestamp(timestampMillis: Long): String {
-        val formatter = SimpleDateFormat(ISO_PATTERN, Locale.US)
-        return formatter.format(Date(timestampMillis))
+        val fmt = isoFormat.get() ?: SimpleDateFormat(ISO_PATTERN, Locale.US)
+        return fmt.format(getDate(timestampMillis))
     }
 
     fun dateIsoOffset(baseIso: String, daysDelta: Int): String {
@@ -25,6 +38,21 @@ object DateUtils {
 
     fun parseIsoToCalendar(dateIso: String): Calendar {
         val cal = Calendar.getInstance()
+        setCalendarFromIso(cal, dateIso)
+        return cal
+    }
+
+    private fun setCalendarFromIso(cal: Calendar, dateIso: String) {
+        if (dateIso.length == 10 && dateIso[4] == '-' && dateIso[7] == '-') {
+            val year = dateIso.substring(0, 4).toIntOrNull()
+            val month = dateIso.substring(5, 7).toIntOrNull()
+            val day = dateIso.substring(8, 10).toIntOrNull()
+            if (year != null && month != null && day != null) {
+                cal.set(year, month - 1, day, 0, 0, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                return
+            }
+        }
         val parts = dateIso.split("-")
         if (parts.size == 3) {
             val year = parts[0].toIntOrNull() ?: cal.get(Calendar.YEAR)
@@ -33,48 +61,67 @@ object DateUtils {
             cal.set(year, month, day, 0, 0, 0)
             cal.set(Calendar.MILLISECOND, 0)
         }
-        return cal
     }
 
     fun calendarToIso(calendar: Calendar): String {
-        val formatter = SimpleDateFormat(ISO_PATTERN, Locale.US)
-        return formatter.format(calendar.time)
+        val year = calendar.get(Calendar.YEAR)
+        val month = calendar.get(Calendar.MONTH) + 1
+        val day = calendar.get(Calendar.DAY_OF_MONTH)
+        return buildString(10) {
+            append(year)
+            append('-')
+            if (month < 10) append('0')
+            append(month)
+            append('-')
+            if (day < 10) append('0')
+            append(day)
+        }
+    }
+
+    fun formatMonthYear(calendar: Calendar): String {
+        val fmt = monthYearFormat.get() ?: SimpleDateFormat("MMMM yyyy", Locale.getDefault())
+        return fmt.format(calendar.time)
     }
 
     fun formatDisplayDate(dateIso: String, nowMillis: Long = System.currentTimeMillis()): String {
         val today = todayIso(nowMillis)
         val yesterday = dateIsoOffset(today, -1)
+        val cal = getCal()
+        setCalendarFromIso(cal, dateIso)
         return when (dateIso) {
             today -> {
-                val cal = parseIsoToCalendar(dateIso)
-                "Today, " + SimpleDateFormat("MMM d", Locale.getDefault()).format(cal.time)
+                val fmt = displayMonthDayFormat.get() ?: SimpleDateFormat("MMM d", Locale.getDefault())
+                "Today, " + fmt.format(cal.time)
             }
             yesterday -> {
-                val cal = parseIsoToCalendar(dateIso)
-                "Yesterday, " + SimpleDateFormat("MMM d", Locale.getDefault()).format(cal.time)
+                val fmt = displayMonthDayFormat.get() ?: SimpleDateFormat("MMM d", Locale.getDefault())
+                "Yesterday, " + fmt.format(cal.time)
             }
             else -> {
-                val cal = parseIsoToCalendar(dateIso)
-                SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(cal.time)
+                val fmt = displayFullDateFormat.get() ?: SimpleDateFormat("EEE, MMM d", Locale.getDefault())
+                fmt.format(cal.time)
             }
         }
     }
 
     fun dayOfWeekShort(dateIso: String): String {
-        val cal = parseIsoToCalendar(dateIso)
-        return SimpleDateFormat("EEE", Locale.getDefault()).format(cal.time)
+        val cal = getCal()
+        setCalendarFromIso(cal, dateIso)
+        val fmt = dayOfWeekShortFormat.get() ?: SimpleDateFormat("EEE", Locale.getDefault())
+        return fmt.format(cal.time)
     }
 
     fun formatTime(timestampMillis: Long): String {
-        return SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(timestampMillis))
+        val fmt = timeFormat.get() ?: SimpleDateFormat("h:mm a", Locale.getDefault())
+        return fmt.format(getDate(timestampMillis))
     }
 
     fun formatHourMinute(hour: Int, minute: Int): String {
-        val cal = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, hour)
-            set(Calendar.MINUTE, minute)
-        }
-        return SimpleDateFormat("h:mm a", Locale.getDefault()).format(cal.time)
+        val cal = getCal()
+        cal.set(Calendar.HOUR_OF_DAY, hour)
+        cal.set(Calendar.MINUTE, minute)
+        val fmt = timeFormat.get() ?: SimpleDateFormat("h:mm a", Locale.getDefault())
+        return fmt.format(cal.time)
     }
 
     fun getLastNDaysIso(n: Int, nowMillis: Long = System.currentTimeMillis()): List<String> {
@@ -84,22 +131,21 @@ object DateUtils {
 
     fun getMonthRangeIso(nowMillis: Long = System.currentTimeMillis()): Pair<String, List<String>> {
         val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
-        val monthTitle = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(cal.time)
+        val monthTitle = formatMonthYear(cal)
         val maxDays = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
         val year = cal.get(Calendar.YEAR)
         val month = cal.get(Calendar.MONTH)
+        val dayCal = Calendar.getInstance()
         val days = (1..maxDays).map { day ->
-            val dayCal = Calendar.getInstance().apply {
-                set(year, month, day, 0, 0, 0)
-                set(Calendar.MILLISECOND, 0)
-            }
+            dayCal.set(year, month, day, 0, 0, 0)
+            dayCal.set(Calendar.MILLISECOND, 0)
             calendarToIso(dayCal)
         }
         return monthTitle to days
     }
 
     fun greetingForHour(userName: String, nowMillis: Long = System.currentTimeMillis()): String {
-        val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
+        val cal = getCal().apply { timeInMillis = nowMillis }
         val hour = cal.get(Calendar.HOUR_OF_DAY)
         val timeGreeting = when (hour) {
             in 5..11 -> "Good morning"
@@ -118,7 +164,7 @@ object DateUtils {
         bedHour: Int,
         bedMinute: Int
     ): Boolean {
-        val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
+        val cal = getCal().apply { timeInMillis = nowMillis }
         val currentMinutes = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
         val wakeMinutes = wakeHour * 60 + wakeMinute
         val bedMinutes = bedHour * 60 + bedMinute
@@ -126,7 +172,6 @@ object DateUtils {
         return if (wakeMinutes <= bedMinutes) {
             currentMinutes in wakeMinutes..bedMinutes
         } else {
-            // Handles late-night schedules (e.g. wake 9:00 AM, bed 1:00 AM)
             currentMinutes >= wakeMinutes || currentMinutes <= bedMinutes
         }
     }
@@ -138,7 +183,7 @@ object DateUtils {
         bedHour: Int,
         bedMinute: Int
     ): Float {
-        val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
+        val cal = getCal().apply { timeInMillis = nowMillis }
         val currentMinutes = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
         val wakeMinutes = wakeHour * 60 + wakeMinute
         val bedMinutes = bedHour * 60 + bedMinute
@@ -167,7 +212,7 @@ object DateUtils {
         wakeMinute: Int,
         windowMinutes: Int = 60
     ): Boolean {
-        val cal = Calendar.getInstance().apply { timeInMillis = timestampMillis }
+        val cal = getCal().apply { timeInMillis = timestampMillis }
         val logMinutes = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
         val wakeMinutes = wakeHour * 60 + wakeMinute
         val diff = logMinutes - wakeMinutes

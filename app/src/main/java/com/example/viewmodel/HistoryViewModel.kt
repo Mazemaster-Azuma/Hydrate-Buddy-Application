@@ -12,17 +12,18 @@ import com.example.model.UserPreferences
 import com.example.model.WeeklyBarPoint
 import com.example.repository.HydrationRepository
 import com.example.utils.DateUtils
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
 import java.util.Calendar
-import java.util.Locale
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HistoryViewModel(
@@ -44,11 +45,14 @@ class HistoryViewModel(
         repository.preferencesFlow
     ) { period, selectedDateIso, dayEntries, allProgress, prefs ->
         buildHistoryState(period, selectedDateIso, dayEntries, allProgress, prefs)
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = HistoryUiState.Loading
-    )
+    }
+        .flowOn(Dispatchers.Default)
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = HistoryUiState.Loading
+        )
 
     private fun buildHistoryState(
         period: HistoryPeriod,
@@ -88,16 +92,15 @@ class HistoryViewModel(
 
         // Anchor month heatmap to selectedDateIso's month
         val selectedCal = DateUtils.parseIsoToCalendar(selectedDateIso)
-        val monthTitle = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(selectedCal.time)
+        val monthTitle = DateUtils.formatMonthYear(selectedCal)
         val maxDays = selectedCal.getActualMaximum(Calendar.DAY_OF_MONTH)
         val year = selectedCal.get(Calendar.YEAR)
         val month = selectedCal.get(Calendar.MONTH)
+        val dayCal = Calendar.getInstance()
 
         val monthlyDays = (1..maxDays).map { day ->
-            val dayCal = Calendar.getInstance().apply {
-                set(year, month, day, 0, 0, 0)
-                set(Calendar.MILLISECOND, 0)
-            }
+            dayCal.set(year, month, day, 0, 0, 0)
+            dayCal.set(Calendar.MILLISECOND, 0)
             val iso = DateUtils.calendarToIso(dayCal)
             val rec = progressByDate[iso]
             val total = if (iso == selectedDateIso) selectedDayTotal else (rec?.totalMl ?: 0)

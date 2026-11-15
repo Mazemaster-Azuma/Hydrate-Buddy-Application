@@ -31,11 +31,13 @@ import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material.icons.filled.WaterDrop
@@ -45,6 +47,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -89,6 +92,7 @@ import com.example.model.ThemeMode
 import com.example.notifications.NotificationHelper
 import com.example.ui.components.DailyGoalEditDialog
 import com.example.ui.components.HydrateTimePickerDialog
+import com.example.updater.UpdateCheckUiState
 import com.example.utils.DateUtils
 import com.example.utils.SoundFeedbackPlayer
 import com.example.utils.UnitConverter
@@ -105,6 +109,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val prefs by viewModel.preferencesState.collectAsStateWithLifecycle()
+    val updateState by viewModel.updateState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -161,14 +166,26 @@ fun SettingsScreen(
     var showResetTodayConfirm by remember { mutableStateOf(false) }
     var showClearDataConfirm by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
+    var showRepoDialog by remember { mutableStateOf(false) }
 
-    val intervals = listOf(15, 30, 45, 60, 90, 120, 180)
-    val withinWakingNow = DateUtils.isWithinWakingHours(
-        wakeHour = prefs.wakeHour,
-        wakeMinute = prefs.wakeMinute,
-        bedHour = prefs.bedHour,
-        bedMinute = prefs.bedMinute
-    )
+    val intervals = remember { listOf(15, 30, 45, 60, 90, 120, 180) }
+    val withinWakingNow = remember(prefs.wakeHour, prefs.wakeMinute, prefs.bedHour, prefs.bedMinute) {
+        DateUtils.isWithinWakingHours(
+            wakeHour = prefs.wakeHour,
+            wakeMinute = prefs.wakeMinute,
+            bedHour = prefs.bedHour,
+            bedMinute = prefs.bedMinute
+        )
+    }
+    val wakeTimeLabel = remember(prefs.wakeHour, prefs.wakeMinute) {
+        DateUtils.formatHourMinute(prefs.wakeHour, prefs.wakeMinute)
+    }
+    val bedTimeLabel = remember(prefs.bedHour, prefs.bedMinute) {
+        DateUtils.formatHourMinute(prefs.bedHour, prefs.bedMinute)
+    }
+    val goalSubtitle = remember(prefs.dailyGoalMl, prefs.unit) {
+        UnitConverter.formatVolume(prefs.dailyGoalMl, prefs.unit)
+    }
 
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         LazyColumn(
@@ -179,7 +196,7 @@ fun SettingsScreen(
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            item {
+            item(key = "settings_title", contentType = "header") {
                 Text(
                     text = "Settings",
                     style = MaterialTheme.typography.headlineMedium,
@@ -188,7 +205,7 @@ fun SettingsScreen(
             }
 
             // Profile & Hydration Target
-            item {
+            item(key = "settings_profile", contentType = "section_card") {
                 SettingsSectionCard(title = "Hydration Profile") {
                     SettingsRowItem(
                         icon = Icons.Default.Person,
@@ -201,7 +218,7 @@ fun SettingsScreen(
                     SettingsRowItem(
                         icon = Icons.Default.WaterDrop,
                         title = "Daily Hydration Goal",
-                        subtitle = UnitConverter.formatVolume(prefs.dailyGoalMl, prefs.unit),
+                        subtitle = goalSubtitle,
                         onClick = { showEditGoalDialog = true },
                         modifier = Modifier.testTag("settings_edit_goal")
                     )
@@ -235,7 +252,7 @@ fun SettingsScreen(
             }
 
             // Reminder Settings
-            item {
+            item(key = "settings_reminders", contentType = "section_card") {
                 SettingsSectionCard(title = "Hydration Reminders") {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -386,7 +403,7 @@ fun SettingsScreen(
                                     Text("Wake-up", style = MaterialTheme.typography.labelSmall)
                                 }
                                 Text(
-                                    text = DateUtils.formatHourMinute(prefs.wakeHour, prefs.wakeMinute),
+                                    text = wakeTimeLabel,
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -415,7 +432,7 @@ fun SettingsScreen(
                                     Text("Bedtime", style = MaterialTheme.typography.labelSmall)
                                 }
                                 Text(
-                                    text = DateUtils.formatHourMinute(prefs.bedHour, prefs.bedMinute),
+                                    text = bedTimeLabel,
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -486,7 +503,7 @@ fun SettingsScreen(
             }
 
             // Experience & Theme
-            item {
+            item(key = "settings_experience", contentType = "section_card") {
                 SettingsSectionCard(title = "Experience & Appearance") {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -563,7 +580,7 @@ fun SettingsScreen(
             }
 
             // Data Management
-            item {
+            item(key = "settings_data", contentType = "section_card") {
                 SettingsSectionCard(title = "Data & Setup") {
                     SettingsRowItem(
                         icon = Icons.Default.Tune,
@@ -592,13 +609,129 @@ fun SettingsScreen(
                 }
             }
 
+            // App Updates
+            item(key = "settings_updates", contentType = "section_card") {
+                val configuredRepo = remember(prefs.updateRepoOverride) {
+                    viewModel.resolveUpdateRepository(prefs.updateRepoOverride)
+                }
+                val hasBuiltInRepo = remember { viewModel.hasBuiltInUpdateRepository() }
+                val isChecking = updateState is UpdateCheckUiState.Checking
+                val isDownloading = updateState is UpdateCheckUiState.Downloading
+
+                SettingsSectionCard(title = "App Updates") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SystemUpdate,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Version ${viewModel.currentVersionName} (Build ${viewModel.currentVersionCode})",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                val statusText = when (val st = updateState) {
+                                    is UpdateCheckUiState.Idle ->
+                                        "Checks automatically only while app is open and online"
+                                    is UpdateCheckUiState.Checking ->
+                                        "Checking GitHub for a newer release..."
+                                    is UpdateCheckUiState.UpToDate ->
+                                        "You're on the latest version"
+                                    is UpdateCheckUiState.Offline ->
+                                        "Offline — turn on Wi-Fi or mobile data to check"
+                                    is UpdateCheckUiState.UpdateAvailable ->
+                                        "New version available: v${st.info.versionName}"
+                                    is UpdateCheckUiState.Downloading ->
+                                        "Downloading update v${st.info.versionName}..."
+                                    is UpdateCheckUiState.ReadyToInstall ->
+                                        if (st.needsInstallPermission) {
+                                            "Allow \"Install unknown apps\" to finish installing v${st.info.versionName}"
+                                        } else {
+                                            "Update v${st.info.versionName} downloaded and ready"
+                                        }
+                                    is UpdateCheckUiState.Error ->
+                                        st.message
+                                }
+                                Text(
+                                    text = statusText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = when (updateState) {
+                                        is UpdateCheckUiState.UpdateAvailable,
+                                        is UpdateCheckUiState.ReadyToInstall -> MaterialTheme.colorScheme.primary
+                                        is UpdateCheckUiState.Error -> MaterialTheme.colorScheme.error
+                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    val actionLabel = when (val st = updateState) {
+                        is UpdateCheckUiState.Checking -> "Checking..."
+                        is UpdateCheckUiState.Downloading -> "Downloading..."
+                        is UpdateCheckUiState.UpdateAvailable -> "Install Update v${st.info.versionName}"
+                        is UpdateCheckUiState.ReadyToInstall -> "Install Update v${st.info.versionName}"
+                        else -> "Check for Updates"
+                    }
+
+                    Button(
+                        onClick = {
+                            when (updateState) {
+                                is UpdateCheckUiState.UpdateAvailable,
+                                is UpdateCheckUiState.ReadyToInstall -> viewModel.openOrStartAvailableUpdate()
+                                else -> viewModel.checkForUpdatesManually()
+                            }
+                        },
+                        enabled = !isChecking && !isDownloading,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .minimumInteractiveComponentSize()
+                            .testTag("settings_check_updates_button")
+                    ) {
+                        if (isChecking || isDownloading) {
+                            CircularProgressIndicator(
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(16.dp),
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                        Text(actionLabel)
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                    SettingsRowItem(
+                        icon = Icons.Default.Link,
+                        title = "GitHub Update Source",
+                        subtitle = configuredRepo.ifBlank {
+                            if (hasBuiltInRepo) "Auto-detected" else "Tap to set owner/repo (e.g., user/Hydrate-Buddy)"
+                        },
+                        onClick = { showRepoDialog = true },
+                        modifier = Modifier.testTag("settings_update_repo")
+                    )
+                }
+            }
+
             // About Card
-            item {
+            item(key = "settings_about", contentType = "about_card") {
                 Card(
                     shape = MaterialTheme.shapes.large,
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(MaterialTheme.shapes.large)
@@ -637,7 +770,7 @@ fun SettingsScreen(
                 }
             }
 
-            item { Spacer(modifier = Modifier.height(12.dp)) }
+            item(key = "settings_bottom_spacer", contentType = "spacer") { Spacer(modifier = Modifier.height(12.dp)) }
         }
     }
 
@@ -786,6 +919,52 @@ fun SettingsScreen(
             }
         )
     }
+
+    if (showRepoDialog) {
+        var repoInput by remember(prefs.updateRepoOverride) {
+            mutableStateOf(
+                prefs.updateRepoOverride.ifBlank {
+                    viewModel.resolveUpdateRepository("")
+                }
+            )
+        }
+        AlertDialog(
+            onDismissRequest = { showRepoDialog = false },
+            title = { Text("GitHub Repository") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Enter your GitHub repository in owner/repo format (set automatically when built via GitHub Actions).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = repoInput,
+                        onValueChange = { repoInput = it.take(120) },
+                        label = { Text("owner/repository") },
+                        placeholder = { Text("username/Hydrate-Buddy") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("settings_repo_input")
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.updateRepositoryOverride(repoInput)
+                    showRepoDialog = false
+                }) {
+                    Text("Save & Check")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRepoDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -797,7 +976,7 @@ private fun SettingsSectionCard(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(18.dp)) {

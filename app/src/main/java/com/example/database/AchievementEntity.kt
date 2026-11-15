@@ -1,8 +1,10 @@
 package com.example.database
 
+import androidx.compose.runtime.Immutable
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
+@Immutable
 @Entity(tableName = "achievements")
 data class AchievementEntity(
     @PrimaryKey val id: String,

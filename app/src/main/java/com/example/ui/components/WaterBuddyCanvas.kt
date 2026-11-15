@@ -49,21 +49,97 @@ import kotlin.math.sin
 private val ShadowColor = Color(0xFF0284C7).copy(alpha = 0.14f)
 private val RimColor = Color(0xFF0369A1).copy(alpha = 0.28f)
 private val InkColor = Color(0xFF0F2537)
+private val SpecularMainColor = Color.White.copy(alpha = 0.58f)
+private val SpecularDotColor = Color.White.copy(alpha = 0.65f)
+private val EyeSecondaryDotColor = Color.White.copy(alpha = 0.8f)
 private val CheekColorBase = Color(0xFFFB7185)
+private val CheekThirstyColor = CheekColorBase.copy(alpha = 0.22f)
+private val CheekHealthyColor = CheekColorBase.copy(alpha = 0.62f)
 private val CrownGold = Color(0xFFFBBF24)
 private val CrownBorder = Color(0xFFD97706)
 private val SweatColor = Color(0xFFE0F2FE)
 private val CelebratingSparkleColors = listOf(
-    Color(0xFFFBBF24),
-    Color(0xFF34D399),
-    Color(0xFFA78BFA),
-    Color(0xFF38BDF8)
+    Color(0xFFFBBF24).copy(alpha = 0.85f),
+    Color(0xFF34D399).copy(alpha = 0.85f),
+    Color(0xFFA78BFA).copy(alpha = 0.85f),
+    Color(0xFF38BDF8).copy(alpha = 0.85f)
 )
 private val ExcitedSparkleColors = listOf(
-    Color(0xFF38BDF8),
-    Color(0xFF2DD4BF),
-    Color(0xFFA78BFA)
+    Color(0xFF38BDF8).copy(alpha = 0.85f),
+    Color(0xFF2DD4BF).copy(alpha = 0.85f),
+    Color(0xFFA78BFA).copy(alpha = 0.85f)
 )
+
+private class BuddyGeometryCache {
+    var cachedWidth: Float = -1f
+    var cachedHeight: Float = -1f
+    val dropPath = Path()
+    val eyeArcPath = Path()
+    val mouthPath = Path()
+    val crownPath = Path()
+
+    var rimStroke = Stroke(width = 3f)
+    var celebratingEyeStroke = Stroke(width = 4f, cap = StrokeCap.Round)
+    var happyMouthStroke = Stroke(width = 4f, cap = StrokeCap.Round)
+    var thirstyMouthStroke = Stroke(width = 4f, cap = StrokeCap.Round)
+    var crownStroke = Stroke(width = 3f)
+
+    fun ensureSize(w: Float, h: Float) {
+        if (w == cachedWidth && h == cachedHeight) return
+        cachedWidth = w
+        cachedHeight = h
+
+        val cx = w / 2f
+        val cy = h * 0.56f
+        val dropRadius = w * 0.33f
+        val topY = h * 0.12f
+        val bottomY = h * 0.86f
+
+        dropPath.rewind()
+        dropPath.moveTo(cx, topY)
+        dropPath.cubicTo(
+            cx + dropRadius * 0.35f, h * 0.30f,
+            cx + dropRadius * 1.16f, h * 0.52f,
+            cx + dropRadius * 1.02f, cy + dropRadius * 0.25f
+        )
+        dropPath.cubicTo(
+            cx + dropRadius * 0.92f, bottomY,
+            cx + dropRadius * 0.42f, bottomY,
+            cx, bottomY
+        )
+        dropPath.cubicTo(
+            cx - dropRadius * 0.42f, bottomY,
+            cx - dropRadius * 0.92f, bottomY,
+            cx - dropRadius * 1.02f, cy + dropRadius * 0.25f
+        )
+        dropPath.cubicTo(
+            cx - dropRadius * 1.16f, h * 0.52f,
+            cx - dropRadius * 0.35f, h * 0.30f,
+            cx, topY
+        )
+        dropPath.close()
+
+        val crownWidth = dropRadius * 0.52f
+        val half = crownWidth / 2f
+        val crownHeight = crownWidth * 0.56f
+        val crownTopY = h * 0.06f
+        crownPath.rewind()
+        crownPath.moveTo(cx - half, crownTopY + crownHeight)
+        crownPath.lineTo(cx - half * 1.05f, crownTopY + crownHeight * 0.25f)
+        crownPath.lineTo(cx - half * 0.4f, crownTopY + crownHeight * 0.62f)
+        crownPath.lineTo(cx, crownTopY)
+        crownPath.lineTo(cx + half * 0.4f, crownTopY + crownHeight * 0.62f)
+        crownPath.lineTo(cx + half * 1.05f, crownTopY + crownHeight * 0.25f)
+        crownPath.lineTo(cx + half, crownTopY + crownHeight)
+        crownPath.close()
+
+        rimStroke = Stroke(width = w * 0.018f)
+        celebratingEyeStroke = Stroke(width = dropRadius * 0.07f, cap = StrokeCap.Round)
+        happyMouthStroke = Stroke(width = dropRadius * 0.068f, cap = StrokeCap.Round)
+        thirstyMouthStroke = Stroke(width = dropRadius * 0.06f, cap = StrokeCap.Round)
+        crownStroke = Stroke(width = crownWidth * 0.06f)
+    }
+}
 
 @Composable
 fun WaterBuddyCanvas(
@@ -74,7 +150,9 @@ fun WaterBuddyCanvas(
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "buddy_idle")
 
-    val floatOffset by infiniteTransition.animateFloat(
+    // Store as State<Float> (no `by`) and read strictly inside graphicsLayer so GPU translates
+    // the cached layer without recomposing or redrawing the Canvas at 60-120fps.
+    val floatOffsetState = infiniteTransition.animateFloat(
         initialValue = -6f,
         targetValue = 6f,
         animationSpec = infiniteRepeatable(
@@ -91,16 +169,6 @@ fun WaterBuddyCanvas(
         label = "float_offset"
     )
 
-    val sparklePhase by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2 * PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 3200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "sparkle_phase"
-    )
-
     var isBlinking by remember { mutableStateOf(false) }
     LaunchedEffect(mood) {
         while (true) {
@@ -112,7 +180,7 @@ fun WaterBuddyCanvas(
     }
 
     var tapPopped by remember { mutableStateOf(false) }
-    val tapScale by animateFloatAsState(
+    val tapScaleState = animateFloatAsState(
         targetValue = if (tapPopped) 1.12f else 1f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
@@ -128,11 +196,7 @@ fun WaterBuddyCanvas(
         }
     }
 
-    // Pre-allocate paths and gradient brushes outside Canvas onDraw for zero per-frame GC churn
-    val dropPath = remember { Path() }
-    val eyeArcPath = remember { Path() }
-    val mouthPath = remember { Path() }
-    val crownPath = remember { Path() }
+    val cache = remember { BuddyGeometryCache() }
 
     val bodyBrush = remember(mood) {
         when (mood) {
@@ -168,8 +232,9 @@ fun WaterBuddyCanvas(
     }
 
     val clickableModifier = if (onBuddyTap != null) {
+        val interactionSource = remember { MutableInteractionSource() }
         Modifier.clickable(
-            interactionSource = remember { MutableInteractionSource() },
+            interactionSource = interactionSource,
             indication = null,
             role = Role.Button
         ) {
@@ -190,123 +255,141 @@ fun WaterBuddyCanvas(
             .then(clickableModifier),
         contentAlignment = Alignment.Center
     ) {
-        Canvas(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    translationY = floatOffset
-                    scaleX = tapScale
-                    scaleY = tapScale
+                    translationY = floatOffsetState.value
+                    val s = tapScaleState.value
+                    scaleX = s
+                    scaleY = s
                 }
         ) {
-            val w = this.size.width
-            val h = this.size.height
-            val cx = w / 2f
-            val cy = h * 0.56f
-            val dropRadius = w * 0.33f
-
-            // Soft ground shadow below Droplet
-            drawOval(
-                color = ShadowColor,
-                topLeft = Offset(cx - dropRadius * 0.72f, h * 0.88f),
-                size = Size(dropRadius * 1.44f, h * 0.07f)
-            )
-
-            // Celebration / Excited orbiting aura sparkles
+            // Orbiting sparkles isolated in a dedicated Canvas only when CELEBRATING / EXCITED
+            // so main teardrop body path is not redrawn on sparkle frames or in calm moods.
             if (mood == BuddyMood.CELEBRATING || mood == BuddyMood.EXCITED) {
-                drawCelebrationSparkles(
-                    cx = cx,
-                    cy = cy,
-                    radius = dropRadius * 1.32f,
-                    phase = sparklePhase,
-                    isCelebrating = mood == BuddyMood.CELEBRATING
+                BuddySparkleOverlay(
+                    isCelebrating = mood == BuddyMood.CELEBRATING,
+                    modifier = Modifier.fillMaxSize()
                 )
             }
 
-            // Teardrop body path (reused via rewind)
-            dropPath.rewind()
-            val topY = h * 0.12f
-            val bottomY = h * 0.86f
-            dropPath.moveTo(cx, topY)
-            dropPath.cubicTo(
-                cx + dropRadius * 0.35f, h * 0.30f,
-                cx + dropRadius * 1.16f, h * 0.52f,
-                cx + dropRadius * 1.02f, cy + dropRadius * 0.25f
-            )
-            dropPath.cubicTo(
-                cx + dropRadius * 0.92f, bottomY,
-                cx + dropRadius * 0.42f, bottomY,
-                cx, bottomY
-            )
-            dropPath.cubicTo(
-                cx - dropRadius * 0.42f, bottomY,
-                cx - dropRadius * 0.92f, bottomY,
-                cx - dropRadius * 1.02f, cy + dropRadius * 0.25f
-            )
-            dropPath.cubicTo(
-                cx - dropRadius * 1.16f, h * 0.52f,
-                cx - dropRadius * 0.35f, h * 0.30f,
-                cx, topY
-            )
-            dropPath.close()
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val w = this.size.width
+                val h = this.size.height
+                cache.ensureSize(w, h)
 
-            drawPath(path = dropPath, brush = bodyBrush)
+                val cx = w / 2f
+                val cy = h * 0.56f
+                val dropRadius = w * 0.33f
 
-            // Crisp soft outer rim
-            drawPath(
-                path = dropPath,
-                color = RimColor,
-                style = Stroke(width = w * 0.018f)
-            )
-
-            // Glossy upper-left specular highlight
-            rotate(degrees = -26f, pivot = Offset(cx - dropRadius * 0.44f, cy - dropRadius * 0.16f)) {
+                // Soft ground shadow below Droplet
                 drawOval(
-                    color = Color.White.copy(alpha = 0.58f),
-                    topLeft = Offset(cx - dropRadius * 0.54f, cy - dropRadius * 0.42f),
-                    size = Size(dropRadius * 0.22f, dropRadius * 0.52f)
+                    color = ShadowColor,
+                    topLeft = Offset(cx - dropRadius * 0.72f, h * 0.88f),
+                    size = Size(dropRadius * 1.44f, h * 0.07f)
                 )
-            }
-            drawCircle(
-                color = Color.White.copy(alpha = 0.65f),
-                radius = dropRadius * 0.075f,
-                center = Offset(cx - dropRadius * 0.26f, cy - dropRadius * 0.52f)
-            )
 
-            // Rosy cheeks (softer when thirsty)
-            val cheekAlpha = if (mood == BuddyMood.THIRSTY) 0.22f else 0.62f
-            val cheekColor = CheekColorBase.copy(alpha = cheekAlpha)
-            drawOval(
-                color = cheekColor,
-                topLeft = Offset(cx - dropRadius * 0.68f, cy + dropRadius * 0.16f),
-                size = Size(dropRadius * 0.30f, dropRadius * 0.16f)
-            )
-            drawOval(
-                color = cheekColor,
-                topLeft = Offset(cx + dropRadius * 0.38f, cy + dropRadius * 0.16f),
-                size = Size(dropRadius * 0.30f, dropRadius * 0.16f)
-            )
+                // Teardrop body
+                drawPath(path = cache.dropPath, brush = bodyBrush)
 
-            // Eyes & facial expression
-            drawBuddyFace(
-                cx = cx,
-                cy = cy + dropRadius * 0.04f,
-                dropRadius = dropRadius,
-                mood = mood,
-                isBlinking = isBlinking,
-                eyeArcPath = eyeArcPath,
-                mouthPath = mouthPath
-            )
+                // Crisp soft outer rim
+                drawPath(
+                    path = cache.dropPath,
+                    color = RimColor,
+                    style = cache.rimStroke
+                )
 
-            // Cute tiny celebration crown when goal reached!
-            if (mood == BuddyMood.CELEBRATING) {
-                drawTinyCrown(
+                // Glossy upper-left specular highlight
+                rotate(degrees = -26f, pivot = Offset(cx - dropRadius * 0.44f, cy - dropRadius * 0.16f)) {
+                    drawOval(
+                        color = SpecularMainColor,
+                        topLeft = Offset(cx - dropRadius * 0.54f, cy - dropRadius * 0.42f),
+                        size = Size(dropRadius * 0.22f, dropRadius * 0.52f)
+                    )
+                }
+                drawCircle(
+                    color = SpecularDotColor,
+                    radius = dropRadius * 0.075f,
+                    center = Offset(cx - dropRadius * 0.26f, cy - dropRadius * 0.52f)
+                )
+
+                // Rosy cheeks (softer when thirsty)
+                val cheekColor = if (mood == BuddyMood.THIRSTY) CheekThirstyColor else CheekHealthyColor
+                drawOval(
+                    color = cheekColor,
+                    topLeft = Offset(cx - dropRadius * 0.68f, cy + dropRadius * 0.16f),
+                    size = Size(dropRadius * 0.30f, dropRadius * 0.16f)
+                )
+                drawOval(
+                    color = cheekColor,
+                    topLeft = Offset(cx + dropRadius * 0.38f, cy + dropRadius * 0.16f),
+                    size = Size(dropRadius * 0.30f, dropRadius * 0.16f)
+                )
+
+                // Eyes & facial expression
+                drawBuddyFace(
                     cx = cx,
-                    topY = h * 0.06f,
-                    width = dropRadius * 0.52f,
-                    crownPath = crownPath
+                    cy = cy + dropRadius * 0.04f,
+                    dropRadius = dropRadius,
+                    mood = mood,
+                    isBlinking = isBlinking,
+                    cache = cache
                 )
+
+                // Cute tiny celebration crown when goal reached!
+                if (mood == BuddyMood.CELEBRATING) {
+                    drawPath(path = cache.crownPath, color = CrownGold)
+                    drawPath(
+                        path = cache.crownPath,
+                        color = CrownBorder,
+                        style = cache.crownStroke
+                    )
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun BuddySparkleOverlay(
+    isCelebrating: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val sparkleTransition = rememberInfiniteTransition(label = "buddy_sparkles")
+    val sparklePhaseState = sparkleTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2 * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 3200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "sparkle_phase"
+    )
+
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val cx = w / 2f
+        val cy = h * 0.56f
+        val radius = w * 0.33f * 1.32f
+        val phase = sparklePhaseState.value
+
+        val colors = if (isCelebrating) CelebratingSparkleColors else ExcitedSparkleColors
+        val count = if (isCelebrating) 8 else 5
+        val dotRadius = radius * 0.055f
+        val step = (2 * PI / count).toFloat()
+
+        for (i in 0 until count) {
+            val angle = phase + i * step
+            val dist = radius * (0.95f + 0.10f * sin(angle * 2f))
+            val sx = cx + cos(angle) * dist
+            val sy = cy + sin(angle) * dist * 0.85f
+            drawCircle(
+                color = colors[i % colors.size],
+                radius = dotRadius,
+                center = Offset(sx, sy)
+            )
         }
     }
 }
@@ -319,17 +402,17 @@ private fun DrawScope.drawBuddyEye(
     dropRadius: Float,
     mood: BuddyMood,
     isBlinking: Boolean,
-    eyeArcPath: Path
+    cache: BuddyGeometryCache
 ) {
     when {
         mood == BuddyMood.CELEBRATING -> {
-            eyeArcPath.rewind()
-            eyeArcPath.moveTo(ex - eyeRadius, eyeY + eyeRadius * 0.25f)
-            eyeArcPath.quadraticTo(ex, eyeY - eyeRadius * 0.95f, ex + eyeRadius, eyeY + eyeRadius * 0.25f)
+            cache.eyeArcPath.rewind()
+            cache.eyeArcPath.moveTo(ex - eyeRadius, eyeY + eyeRadius * 0.25f)
+            cache.eyeArcPath.quadraticTo(ex, eyeY - eyeRadius * 0.95f, ex + eyeRadius, eyeY + eyeRadius * 0.25f)
             drawPath(
-                path = eyeArcPath,
+                path = cache.eyeArcPath,
                 color = InkColor,
-                style = Stroke(width = dropRadius * 0.07f, cap = StrokeCap.Round)
+                style = cache.celebratingEyeStroke
             )
         }
         isBlinking -> {
@@ -382,7 +465,7 @@ private fun DrawScope.drawBuddyEye(
                 center = Offset(ex - eyeRadius * 0.28f, eyeY - eyeRadius * 0.30f)
             )
             drawCircle(
-                color = Color.White.copy(alpha = 0.8f),
+                color = EyeSecondaryDotColor,
                 radius = eyeRadius * 0.16f,
                 center = Offset(ex + eyeRadius * 0.28f, eyeY + eyeRadius * 0.28f)
             )
@@ -396,15 +479,14 @@ private fun DrawScope.drawBuddyFace(
     dropRadius: Float,
     mood: BuddyMood,
     isBlinking: Boolean,
-    eyeArcPath: Path,
-    mouthPath: Path
+    cache: BuddyGeometryCache
 ) {
     val eyeOffsetX = dropRadius * 0.36f
     val eyeY = cy - dropRadius * 0.08f
     val eyeRadius = dropRadius * 0.145f
 
-    drawBuddyEye(0, cx - eyeOffsetX, eyeY, eyeRadius, dropRadius, mood, isBlinking, eyeArcPath)
-    drawBuddyEye(1, cx + eyeOffsetX, eyeY, eyeRadius, dropRadius, mood, isBlinking, eyeArcPath)
+    drawBuddyEye(0, cx - eyeOffsetX, eyeY, eyeRadius, dropRadius, mood, isBlinking, cache)
+    drawBuddyEye(1, cx + eyeOffsetX, eyeY, eyeRadius, dropRadius, mood, isBlinking, cache)
 
     // Mouth
     val mouthY = cy + dropRadius * 0.24f
@@ -412,11 +494,11 @@ private fun DrawScope.drawBuddyFace(
         BuddyMood.CELEBRATING, BuddyMood.EXCITED -> {
             val smileWidth = dropRadius * 0.42f
             val smileHeight = dropRadius * 0.28f
-            mouthPath.rewind()
-            mouthPath.moveTo(cx - smileWidth / 2f, mouthY - smileHeight * 0.15f)
-            mouthPath.quadraticTo(cx, mouthY + smileHeight * 1.15f, cx + smileWidth / 2f, mouthY - smileHeight * 0.15f)
-            mouthPath.close()
-            drawPath(path = mouthPath, color = InkColor)
+            cache.mouthPath.rewind()
+            cache.mouthPath.moveTo(cx - smileWidth / 2f, mouthY - smileHeight * 0.15f)
+            cache.mouthPath.quadraticTo(cx, mouthY + smileHeight * 1.15f, cx + smileWidth / 2f, mouthY - smileHeight * 0.15f)
+            cache.mouthPath.close()
+            drawPath(path = cache.mouthPath, color = InkColor)
             drawOval(
                 color = CheekColorBase,
                 topLeft = Offset(cx - smileWidth * 0.24f, mouthY + smileHeight * 0.18f),
@@ -424,13 +506,13 @@ private fun DrawScope.drawBuddyFace(
             )
         }
         BuddyMood.HAPPY -> {
-            mouthPath.rewind()
-            mouthPath.moveTo(cx - dropRadius * 0.20f, mouthY)
-            mouthPath.quadraticTo(cx, mouthY + dropRadius * 0.22f, cx + dropRadius * 0.20f, mouthY)
+            cache.mouthPath.rewind()
+            cache.mouthPath.moveTo(cx - dropRadius * 0.20f, mouthY)
+            cache.mouthPath.quadraticTo(cx, mouthY + dropRadius * 0.22f, cx + dropRadius * 0.20f, mouthY)
             drawPath(
-                path = mouthPath,
+                path = cache.mouthPath,
                 color = InkColor,
-                style = Stroke(width = dropRadius * 0.068f, cap = StrokeCap.Round)
+                style = cache.happyMouthStroke
             )
         }
         BuddyMood.NEUTRAL -> {
@@ -442,14 +524,14 @@ private fun DrawScope.drawBuddyFace(
             )
         }
         BuddyMood.THIRSTY -> {
-            mouthPath.rewind()
-            mouthPath.moveTo(cx - dropRadius * 0.18f, mouthY + dropRadius * 0.08f)
-            mouthPath.quadraticTo(cx - dropRadius * 0.08f, mouthY - dropRadius * 0.02f, cx, mouthY + dropRadius * 0.06f)
-            mouthPath.quadraticTo(cx + dropRadius * 0.08f, mouthY + dropRadius * 0.14f, cx + dropRadius * 0.18f, mouthY + dropRadius * 0.04f)
+            cache.mouthPath.rewind()
+            cache.mouthPath.moveTo(cx - dropRadius * 0.18f, mouthY + dropRadius * 0.08f)
+            cache.mouthPath.quadraticTo(cx - dropRadius * 0.08f, mouthY - dropRadius * 0.02f, cx, mouthY + dropRadius * 0.06f)
+            cache.mouthPath.quadraticTo(cx + dropRadius * 0.08f, mouthY + dropRadius * 0.14f, cx + dropRadius * 0.18f, mouthY + dropRadius * 0.04f)
             drawPath(
-                path = mouthPath,
+                path = cache.mouthPath,
                 color = InkColor,
-                style = Stroke(width = dropRadius * 0.06f, cap = StrokeCap.Round)
+                style = cache.thirstyMouthStroke
             )
             drawCircle(
                 color = SweatColor,
@@ -458,53 +540,4 @@ private fun DrawScope.drawBuddyFace(
             )
         }
     }
-}
-
-private fun DrawScope.drawCelebrationSparkles(
-    cx: Float,
-    cy: Float,
-    radius: Float,
-    phase: Float,
-    isCelebrating: Boolean
-) {
-    val colors = if (isCelebrating) CelebratingSparkleColors else ExcitedSparkleColors
-    val count = if (isCelebrating) 8 else 5
-    for (i in 0 until count) {
-        val angle = phase + (i * (2 * PI / count)).toFloat()
-        val dist = radius * (0.95f + 0.10f * sin(angle * 2f))
-        val sx = cx + cos(angle) * dist
-        val sy = cy + sin(angle) * dist * 0.85f
-        val color = colors[i % colors.size]
-        drawCircle(
-            color = color.copy(alpha = 0.85f),
-            radius = radius * 0.055f,
-            center = Offset(sx, sy)
-        )
-    }
-}
-
-private fun DrawScope.drawTinyCrown(
-    cx: Float,
-    topY: Float,
-    width: Float,
-    crownPath: Path
-) {
-    crownPath.rewind()
-    val half = width / 2f
-    val height = width * 0.56f
-    crownPath.moveTo(cx - half, topY + height)
-    crownPath.lineTo(cx - half * 1.05f, topY + height * 0.25f)
-    crownPath.lineTo(cx - half * 0.4f, topY + height * 0.62f)
-    crownPath.lineTo(cx, topY)
-    crownPath.lineTo(cx + half * 0.4f, topY + height * 0.62f)
-    crownPath.lineTo(cx + half * 1.05f, topY + height * 0.25f)
-    crownPath.lineTo(cx + half, topY + height)
-    crownPath.close()
-
-    drawPath(path = crownPath, color = CrownGold)
-    drawPath(
-        path = crownPath,
-        color = CrownBorder,
-        style = Stroke(width = width * 0.06f)
-    )
 }

@@ -7,15 +7,23 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.navigation.HydrateNavHost
 import com.example.notifications.ReminderScheduler
 import com.example.ui.components.AlarmRingingDialog
+import com.example.ui.components.AppUpdateDialog
 import com.example.ui.theme.HydrateBuddyTheme
+import com.example.updater.NetworkMonitor
 import com.example.viewmodel.AppBootstrapState
 import com.example.viewmodel.AppViewModel
 import com.example.viewmodel.HydrateViewModelFactory
@@ -28,13 +36,40 @@ class MainActivity : ComponentActivity() {
         val app = application as HydrateBuddyApplication
         val factory = HydrateViewModelFactory(
             repository = app.repository,
-            appContext = applicationContext
+            appContext = applicationContext,
+            updateCoordinator = app.updateCoordinator
         )
 
         setContent {
             val appViewModel: AppViewModel = viewModel(factory = factory)
             val bootstrapState by appViewModel.bootstrapState.collectAsStateWithLifecycle()
             val alarmRingState by appViewModel.alarmRingState.collectAsStateWithLifecycle()
+            val updateState by appViewModel.updateState.collectAsStateWithLifecycle()
+            val lifecycleOwner = LocalLifecycleOwner.current
+
+            DisposableEffect(lifecycleOwner, appViewModel) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        appViewModel.onForegroundResumed()
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose {
+                    lifecycleOwner.lifecycle.removeObserver(observer)
+                }
+            }
+
+            // Strictly foreground-only internet check: starts in ON_START, cancelled in ON_STOP.
+            LaunchedEffect(lifecycleOwner, appViewModel) {
+                lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    NetworkMonitor.observeInternetConnected(applicationContext)
+                        .collect { connected ->
+                            if (connected) {
+                                appViewModel.onForegroundNetworkConnected()
+                            }
+                        }
+                }
+            }
 
             when (val state = bootstrapState) {
                 is AppBootstrapState.Loading -> {
@@ -48,7 +83,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 is AppBootstrapState.Ready -> {
-                    androidx.compose.runtime.LaunchedEffect(
+                    LaunchedEffect(
                         state.preferences.onboardingCompleted,
                         state.preferences.remindersEnabled,
                         state.preferences.reminderIntervalMinutes,
@@ -57,7 +92,9 @@ class MainActivity : ComponentActivity() {
                         state.preferences.bedHour,
                         state.preferences.bedMinute
                     ) {
-                        ReminderScheduler.syncReminders(applicationContext, state.preferences)
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            ReminderScheduler.syncReminders(applicationContext, state.preferences)
+                        }
                     }
                     HydrateBuddyTheme(themeMode = state.themeMode) {
                         HydrateNavHost(
@@ -73,6 +110,15 @@ class MainActivity : ComponentActivity() {
                                 onStop = appViewModel::stopAlarm
                             )
                         }
+                        AppUpdateDialog(
+                            updateState = updateState,
+                            currentVersionName = appViewModel.currentVersionName,
+                            currentVersionCode = appViewModel.currentVersionCode,
+                            onStartUpdate = appViewModel::startAppUpdate,
+                            onCancelDownload = appViewModel::cancelAppUpdate,
+                            onDismiss = appViewModel::dismissAppUpdateDialog,
+                            onOpenInstallPermissionSettings = appViewModel::openInstallPermissionSettings
+                        )
                     }
                 }
             }

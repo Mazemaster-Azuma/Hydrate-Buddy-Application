@@ -1,9 +1,11 @@
 package com.example.model
 
+import androidx.compose.runtime.Immutable
 import com.example.database.AchievementEntity
 import com.example.database.DailyProgressEntity
 import com.example.database.WaterEntryEntity
 
+@Immutable
 data class UserPreferences(
     val userName: String = "",
     val dailyGoalMl: Int = 2000,
@@ -18,9 +20,11 @@ data class UserPreferences(
     val soundEnabled: Boolean = true,
     val vibrationEnabled: Boolean = true,
     val themeMode: ThemeMode = ThemeMode.LIGHT,
-    val onboardingCompleted: Boolean = false
+    val onboardingCompleted: Boolean = false,
+    val updateRepoOverride: String = ""
 )
 
+@Immutable
 data class LevelInfo(
     val level: Int,
     val title: String,
@@ -33,6 +37,7 @@ data class LevelInfo(
     val progressFraction: Float get() = (xpInCurrentLevel.toFloat() / xpRequiredForNext).coerceIn(0f, 1f)
 }
 
+@Immutable
 data class AddWaterResult(
     val entryId: Long,
     val newTotalMl: Int,
@@ -41,8 +46,10 @@ data class AddWaterResult(
     val newlyUnlockedAchievements: List<AchievementEntity>
 )
 
+@Immutable
 sealed interface HomeUiState {
     data object Loading : HomeUiState
+    @Immutable
     data class Success(
         val greeting: String,
         val displayDate: String,
@@ -59,6 +66,7 @@ sealed interface HomeUiState {
         val levelInfo: LevelInfo,
         val quickAddAmountsMl: List<Int>
     ) : HomeUiState
+    @Immutable
     data class Error(val message: String) : HomeUiState
 }
 
@@ -68,6 +76,7 @@ enum class HistoryPeriod(val label: String) {
     MONTH("Month")
 }
 
+@Immutable
 data class WeeklyBarPoint(
     val dateIso: String,
     val dayLabel: String,
@@ -76,6 +85,7 @@ data class WeeklyBarPoint(
     val completionPercent: Int
 )
 
+@Immutable
 data class MonthlyHeatmapDay(
     val dateIso: String,
     val dayOfMonth: Int,
@@ -85,8 +95,10 @@ data class MonthlyHeatmapDay(
     val isFuture: Boolean
 )
 
+@Immutable
 sealed interface HistoryUiState {
     data object Loading : HistoryUiState
+    @Immutable
     data class Success(
         val selectedPeriod: HistoryPeriod,
         val selectedDateIso: String,
@@ -116,8 +128,10 @@ enum class AchievementFilter(val label: String) {
     LOCKED("In Progress")
 }
 
+@Immutable
 sealed interface AchievementsUiState {
     data object Loading : AchievementsUiState
+    @Immutable
     data class Success(
         val achievements: List<AchievementEntity>,
         val filter: AchievementFilter,

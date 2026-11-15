@@ -184,20 +184,43 @@ fun HomeScreen(
                 )
             }
 
-            val deleteWithUndo: (WaterEntryEntity) -> Unit = { entry ->
-                viewModel.deleteEntry(entry.id)
-                scope.launch {
-                    snackbarHostState.currentSnackbarData?.dismiss()
-                    val res = snackbarHostState.showSnackbar(
-                        message = "Removed ${UnitConverter.formatVolume(entry.amountMl, state.unit)}",
-                        actionLabel = undoLabel,
-                        duration = SnackbarDuration.Short
-                    )
-                    if (res == SnackbarResult.ActionPerformed) {
-                        viewModel.restoreEntry(entry)
+            val currentVibrationEnabled by rememberUpdatedState(vibrationEnabled)
+            val deleteWithUndo: (WaterEntryEntity) -> Unit = remember(viewModel, scope, snackbarHostState, undoLabel) {
+                { entry ->
+                    val currentUnit = (currentUiState as? HomeUiState.Success)?.unit ?: MeasurementUnit.ML
+                    viewModel.deleteEntry(entry.id)
+                    scope.launch {
+                        snackbarHostState.currentSnackbarData?.dismiss()
+                        val res = snackbarHostState.showSnackbar(
+                            message = "Removed ${UnitConverter.formatVolume(entry.amountMl, currentUnit)}",
+                            actionLabel = undoLabel,
+                            duration = SnackbarDuration.Short
+                        )
+                        if (res == SnackbarResult.ActionPerformed) {
+                            viewModel.restoreEntry(entry)
+                        }
                     }
                 }
             }
+            val onQuickAddStable: (Int, DrinkType) -> Unit = remember(viewModel, haptic) {
+                { amountMl, drinkType ->
+                    if (currentVibrationEnabled) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
+                    viewModel.logWater(amountMl, drinkType)
+                }
+            }
+            val onBuddyTapStable: () -> Unit = remember(viewModel, haptic) {
+                {
+                    if (currentVibrationEnabled) {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
+                    viewModel.triggerBuddyCheer()
+                }
+            }
+            val onOpenCustomStable: () -> Unit = remember { { showCustomDialog = true } }
+            val onOpenGoalEditStable: () -> Unit = remember { { showEditGoalDialog = true } }
+            val onEditEntryStable: (WaterEntryEntity) -> Unit = remember { { editingEntry = it } }
 
             editingEntry?.let { entry ->
                 EditWaterEntryDialog(
@@ -218,22 +241,12 @@ fun HomeScreen(
             HomeDashboardContent(
                 state = state,
                 burstTrigger = burstTrigger,
-                onQuickAdd = { amountMl, drinkType ->
-                    if (vibrationEnabled) {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    }
-                    viewModel.logWater(amountMl, drinkType)
-                },
-                onOpenCustom = { showCustomDialog = true },
-                onOpenGoalEdit = { showEditGoalDialog = true },
+                onQuickAdd = onQuickAddStable,
+                onOpenCustom = onOpenCustomStable,
+                onOpenGoalEdit = onOpenGoalEditStable,
                 onNavigateToAchievements = onNavigateToAchievements,
-                onBuddyTap = {
-                    if (vibrationEnabled) {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    }
-                    viewModel.triggerBuddyCheer()
-                },
-                onEditEntry = { editingEntry = it },
+                onBuddyTap = onBuddyTapStable,
+                onEditEntry = onEditEntryStable,
                 onDeleteEntry = deleteWithUndo,
                 modifier = modifier
             )
@@ -255,7 +268,26 @@ private fun HomeDashboardContent(
     modifier: Modifier = Modifier
 ) {
     val extendedColors = LocalHydrateColors.current
-    val pctDisplay = ((state.totalMl.toFloat() / state.goalMl.coerceAtLeast(1)) * 100f).roundToInt()
+    val pctDisplay = remember(state.totalMl, state.goalMl) {
+        ((state.totalMl.toFloat() / state.goalMl.coerceAtLeast(1)) * 100f).roundToInt()
+    }
+    val formattedTotal = remember(state.totalMl, state.unit) {
+        UnitConverter.formatVolume(state.totalMl, state.unit)
+    }
+    val formattedGoal = remember(state.goalMl, state.unit) {
+        UnitConverter.formatVolume(state.goalMl, state.unit)
+    }
+    val formattedRemaining = remember(state.remainingMl, state.unit) {
+        UnitConverter.formatVolume(state.remainingMl, state.unit)
+    }
+    val heroGradient = remember(extendedColors.cardGradientStart, extendedColors.cardGradientEnd) {
+        Brush.verticalGradient(
+            colors = listOf(
+                extendedColors.cardGradientStart,
+                extendedColors.cardGradientEnd
+            )
+        )
+    }
     val lastEntry = state.entries.firstOrNull()
 
     Box(
@@ -271,7 +303,7 @@ private fun HomeDashboardContent(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // 1. Greeting, Date, Streak & Level header
-            item {
+            item(key = "home_header", contentType = "header") {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -350,24 +382,17 @@ private fun HomeDashboardContent(
             }
 
             // 2. Hero Virtual Buddy + Progress Ring Card
-            item {
+            item(key = "home_hero", contentType = "hero") {
                 Card(
                     shape = MaterialTheme.shapes.extraLarge,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        extendedColors.cardGradientStart,
-                                        extendedColors.cardGradientEnd
-                                    )
-                                )
-                            )
+                            .background(heroGradient)
                             .padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
@@ -419,7 +444,7 @@ private fun HomeDashboardContent(
                             horizontalArrangement = Arrangement.Center
                         ) {
                             Text(
-                                text = UnitConverter.formatVolume(state.totalMl, state.unit),
+                                text = formattedTotal,
                                 style = MaterialTheme.typography.displayMedium,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.testTag("home_total_intake_text")
@@ -439,7 +464,7 @@ private fun HomeDashboardContent(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "/ ${UnitConverter.formatVolume(state.goalMl, state.unit)}",
+                                        text = "/ $formattedGoal",
                                         style = MaterialTheme.typography.titleMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -495,9 +520,7 @@ private fun HomeDashboardContent(
                                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)
                                 ) {
                                     Text(
-                                        text = "${stringResource(R.string.home_remaining_label)}: ${
-                                            UnitConverter.formatVolume(state.remainingMl, state.unit)
-                                        }",
+                                        text = "${stringResource(R.string.home_remaining_label)}: $formattedRemaining",
                                         style = MaterialTheme.typography.labelLarge,
                                         color = MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier
@@ -524,7 +547,7 @@ private fun HomeDashboardContent(
             }
 
             // 3. Quick-Add Section
-            item {
+            item(key = "home_quick_add", contentType = "quick_add") {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -609,7 +632,7 @@ private fun HomeDashboardContent(
             }
 
             // 4. Today's Sips Log Header
-            item {
+            item(key = "home_log_header", contentType = "log_header") {
                 Text(
                     text = "${stringResource(R.string.home_today_log_title)} (${state.entries.size})",
                     style = MaterialTheme.typography.titleLarge
@@ -617,7 +640,7 @@ private fun HomeDashboardContent(
             }
 
             if (state.entries.isEmpty()) {
-                item {
+                item(key = "home_empty_log", contentType = "empty_log") {
                     Card(
                         shape = MaterialTheme.shapes.large,
                         colors = CardDefaults.cardColors(
@@ -654,7 +677,11 @@ private fun HomeDashboardContent(
                     }
                 }
             } else {
-                items(state.entries, key = { it.id }) { entry ->
+                items(
+                    items = state.entries,
+                    key = { it.id },
+                    contentType = { "water_entry" }
+                ) { entry ->
                     WaterEntryRowCard(
                         entry = entry,
                         unit = state.unit,
@@ -664,7 +691,7 @@ private fun HomeDashboardContent(
                 }
             }
 
-            item { Spacer(modifier = Modifier.height(8.dp)) }
+            item(key = "home_bottom_spacer", contentType = "spacer") { Spacer(modifier = Modifier.height(8.dp)) }
         }
     }
 }
@@ -676,7 +703,13 @@ fun WaterEntryRowCard(
     onEditClick: () -> Unit,
     onDeleteClick: (() -> Unit)? = null
 ) {
-    val drinkType = DrinkType.fromName(entry.drinkType)
+    val formattedAmount = remember(entry.amountMl, unit) {
+        UnitConverter.formatVolume(entry.amountMl, unit)
+    }
+    val subtitle = remember(entry.drinkType, entry.timestampMillis) {
+        val drinkType = DrinkType.fromName(entry.drinkType)
+        "${drinkType.label} • ${DateUtils.formatTime(entry.timestampMillis)}"
+    }
     Card(
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -713,12 +746,12 @@ fun WaterEntryRowCard(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = UnitConverter.formatVolume(entry.amountMl, unit),
+                    text = formattedAmount,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "${drinkType.label} • ${DateUtils.formatTime(entry.timestampMillis)}",
+                    text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

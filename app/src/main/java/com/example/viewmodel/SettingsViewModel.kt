@@ -10,8 +10,11 @@ import com.example.notifications.AlarmRingController
 import com.example.notifications.NotificationHelper
 import com.example.notifications.ReminderScheduler
 import com.example.repository.HydrationRepository
+import com.example.updater.AppUpdateCoordinator
+import com.example.updater.UpdateCheckUiState
 import com.example.utils.DateUtils
 import com.example.utils.SoundFeedbackPlayer
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -20,10 +23,12 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class SettingsViewModel(
     private val repository: HydrationRepository,
-    private val appContext: Context
+    private val appContext: Context,
+    private val updateCoordinator: AppUpdateCoordinator = AppUpdateCoordinator(appContext, repository)
 ) : ViewModel() {
 
     val preferencesState: StateFlow<UserPreferences> = repository.preferencesFlow.stateIn(
@@ -31,6 +36,10 @@ class SettingsViewModel(
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = UserPreferences()
     )
+
+    val updateState: StateFlow<UpdateCheckUiState> = updateCoordinator.uiState
+    val currentVersionName: String get() = updateCoordinator.currentVersionName
+    val currentVersionCode: Int get() = updateCoordinator.currentVersionCode
 
     private val _statusMessages = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val statusMessages: SharedFlow<String> = _statusMessages.asSharedFlow()
@@ -61,7 +70,9 @@ class SettingsViewModel(
             val updated = repository.updatePreferences {
                 it.copy(wakeHour = hour, wakeMinute = minute)
             }
-            ReminderScheduler.syncReminders(appContext, updated)
+            withContext(Dispatchers.IO) {
+                ReminderScheduler.syncReminders(appContext, updated)
+            }
         }
     }
 
@@ -70,7 +81,9 @@ class SettingsViewModel(
             val updated = repository.updatePreferences {
                 it.copy(bedHour = hour, bedMinute = minute)
             }
-            ReminderScheduler.syncReminders(appContext, updated)
+            withContext(Dispatchers.IO) {
+                ReminderScheduler.syncReminders(appContext, updated)
+            }
         }
     }
 
@@ -79,7 +92,9 @@ class SettingsViewModel(
             val updated = repository.updatePreferences {
                 it.copy(reminderIntervalMinutes = minutes.coerceAtLeast(15))
             }
-            ReminderScheduler.syncReminders(appContext, updated)
+            withContext(Dispatchers.IO) {
+                ReminderScheduler.syncReminders(appContext, updated)
+            }
         }
     }
 
@@ -91,7 +106,9 @@ class SettingsViewModel(
             if (!enabled) {
                 AlarmRingController.stopRinging(appContext)
             }
-            ReminderScheduler.syncReminders(appContext, updated)
+            withContext(Dispatchers.IO) {
+                ReminderScheduler.syncReminders(appContext, updated)
+            }
         }
     }
 
@@ -166,9 +183,43 @@ class SettingsViewModel(
             AlarmRingController.stopRinging(appContext)
             SoundFeedbackPlayer.stopAlarmChimePreview()
             NotificationHelper.cancelReminderNotification(appContext)
-            ReminderScheduler.cancelReminders(appContext)
+            withContext(Dispatchers.IO) {
+                ReminderScheduler.cancelReminders(appContext)
+            }
             repository.clearAllData()
             onCleared()
+        }
+    }
+
+    fun resolveUpdateRepository(override: String): String =
+        updateCoordinator.resolveConfiguredRepo(override)
+
+    fun hasBuiltInUpdateRepository(): Boolean =
+        updateCoordinator.isBuiltInRepoPresent()
+
+    fun checkForUpdatesManually() {
+        updateCoordinator.checkForUpdatesManually()
+    }
+
+    fun openOrStartAvailableUpdate() {
+        when (updateCoordinator.uiState.value) {
+            is UpdateCheckUiState.UpdateAvailable -> updateCoordinator.showAvailableUpdateDialog()
+            is UpdateCheckUiState.ReadyToInstall -> updateCoordinator.startDownloadAndInstall()
+            else -> updateCoordinator.checkForUpdatesManually()
+        }
+    }
+
+    fun updateRepositoryOverride(rawInput: String) {
+        viewModelScope.launch {
+            val saved = updateCoordinator.saveRepositoryOverride(rawInput)
+            if (!saved) {
+                _statusMessages.emit("Enter a valid GitHub repo like owner/Hydrate-Buddy")
+            } else {
+                _statusMessages.emit("Update source saved")
+                if (rawInput.trim().isNotEmpty()) {
+                    updateCoordinator.checkForUpdatesManually()
+                }
+            }
         }
     }
 }

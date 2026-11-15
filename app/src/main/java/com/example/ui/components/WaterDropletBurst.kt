@@ -15,7 +15,8 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 private data class DropletParticle(
-    val angleRad: Float,
+    val cosAngle: Float,
+    val sinAngle: Float,
     val distanceFactor: Float,
     val radiusDp: Float,
     val color: Color
@@ -38,7 +39,8 @@ fun WaterDropletBurst(
         List(12) { index ->
             val angle = ((index * 30) - 180) * (PI / 180.0)
             DropletParticle(
-                angleRad = angle.toFloat(),
+                cosAngle = cos(angle).toFloat(),
+                sinAngle = sin(angle).toFloat(),
                 distanceFactor = 0.65f + (index % 3) * 0.16f,
                 radiusDp = 4f + (index % 3) * 2f,
                 color = colors[index % colors.size]
@@ -56,19 +58,25 @@ fun WaterDropletBurst(
         }
     }
 
-    if (progress.value < 0.99f && triggerCount > 0) {
+    // Defer progress.value read strictly to Canvas draw phase to prevent 60-120fps recompositions
+    if (triggerCount > 0) {
         Canvas(modifier = modifier) {
             val t = progress.value
+            if (t >= 0.99f) return@Canvas
+
             val alpha = (1f - t).coerceIn(0f, 1f)
             val maxSpread = size.minDimension * 0.48f
+            val yDrift = t * 24f
+            val radiusScale = density * (1f - t * 0.35f)
 
-            particles.forEach { p ->
+            for (i in particles.indices) {
+                val p = particles[i]
                 val dist = maxSpread * p.distanceFactor * t
-                val x = center.x + cos(p.angleRad) * dist
-                val y = center.y + sin(p.angleRad) * dist - (t * 24f)
+                val x = center.x + p.cosAngle * dist
+                val y = center.y + p.sinAngle * dist - yDrift
                 drawCircle(
                     color = p.color.copy(alpha = alpha),
-                    radius = p.radiusDp * density * (1f - t * 0.35f),
+                    radius = p.radiusDp * radiusScale,
                     center = Offset(x, y)
                 )
             }

@@ -36,6 +36,7 @@ class UserPreferencesDataStore(private val context: Context) {
         val VIBRATION_ENABLED = booleanPreferencesKey("vibration_enabled")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
+        val UPDATE_REPO_OVERRIDE = stringPreferencesKey("update_repo_override")
     }
 
     val preferencesFlow: Flow<UserPreferences> = context.hydrateDataStore.data.map { prefs ->
@@ -53,7 +54,8 @@ class UserPreferencesDataStore(private val context: Context) {
             soundEnabled = prefs[Keys.SOUND_ENABLED] ?: true,
             vibrationEnabled = prefs[Keys.VIBRATION_ENABLED] ?: true,
             themeMode = ThemeMode.fromName(prefs[Keys.THEME_MODE] ?: ThemeMode.LIGHT.name),
-            onboardingCompleted = prefs[Keys.ONBOARDING_COMPLETED] ?: false
+            onboardingCompleted = prefs[Keys.ONBOARDING_COMPLETED] ?: false,
+            updateRepoOverride = prefs[Keys.UPDATE_REPO_OVERRIDE] ?: ""
         )
     }
 
@@ -76,7 +78,8 @@ class UserPreferencesDataStore(private val context: Context) {
                 soundEnabled = prefs[Keys.SOUND_ENABLED] ?: true,
                 vibrationEnabled = prefs[Keys.VIBRATION_ENABLED] ?: true,
                 themeMode = ThemeMode.fromName(prefs[Keys.THEME_MODE] ?: ThemeMode.LIGHT.name),
-                onboardingCompleted = prefs[Keys.ONBOARDING_COMPLETED] ?: false
+                onboardingCompleted = prefs[Keys.ONBOARDING_COMPLETED] ?: false,
+                updateRepoOverride = prefs[Keys.UPDATE_REPO_OVERRIDE] ?: ""
             )
             updated = transform(current)
             prefs[Keys.USER_NAME] = updated.userName
@@ -93,6 +96,7 @@ class UserPreferencesDataStore(private val context: Context) {
             prefs[Keys.VIBRATION_ENABLED] = updated.vibrationEnabled
             prefs[Keys.THEME_MODE] = updated.themeMode.name
             prefs[Keys.ONBOARDING_COMPLETED] = updated.onboardingCompleted
+            prefs[Keys.UPDATE_REPO_OVERRIDE] = updated.updateRepoOverride
         }
         return updated
     }
