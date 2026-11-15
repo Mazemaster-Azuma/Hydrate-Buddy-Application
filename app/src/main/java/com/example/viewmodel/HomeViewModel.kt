@@ -14,6 +14,7 @@ import com.example.utils.SoundFeedbackPlayer
 import com.example.utils.UnitConverter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 data class HomeFeedbackEvent(
@@ -42,8 +44,10 @@ class HomeViewModel(
 ) : ViewModel() {
 
     private val todayIsoFlow = MutableStateFlow(DateUtils.todayIso())
+    private val clockTickFlow = MutableStateFlow(System.currentTimeMillis())
     private val recentMilestoneFlow = MutableStateFlow<Int?>(null)
     private val justLoggedDrinkFlow = MutableStateFlow(false)
+    private val justTappedCheerFlow = MutableStateFlow(false)
     private val dropletBurstTriggerFlow = MutableStateFlow(0)
     private val unlockedQueueFlow = MutableStateFlow<List<AchievementEntity>>(emptyList())
 
@@ -54,9 +58,34 @@ class HomeViewModel(
     val unlockedBannerQueue: StateFlow<List<AchievementEntity>> = unlockedQueueFlow.asStateFlow()
 
     private var lastTapMillis: Long = 0L
+    private var cheerResetJob: Job? = null
+    private var drinkResetJob: Job? = null
+
+    init {
+        viewModelScope.launch {
+            while (isActive) {
+                delay(60_000L)
+                refreshDateIfNeeded()
+            }
+        }
+    }
 
     private val todayEntriesFlow = todayIsoFlow.flatMapLatest { dateIso ->
         repository.observeEntriesForDate(dateIso)
+    }
+
+    private val buddyTransientFlow = combine(
+        recentMilestoneFlow,
+        justLoggedDrinkFlow,
+        justTappedCheerFlow,
+        clockTickFlow
+    ) { recentMilestone, justLogged, justTappedCheer, clockTick ->
+        BuddyTransientState(
+            recentMilestone = recentMilestone,
+            justLoggedDrink = justLogged,
+            justTappedCheer = justTappedCheer,
+            nowMillis = clockTick
+        )
     }
 
     val uiState: StateFlow<HomeUiState> = combine(
@@ -65,8 +94,7 @@ class HomeViewModel(
         repository.preferencesFlow,
         repository.allProgressFlow,
         repository.totalXpFlow,
-        recentMilestoneFlow,
-        justLoggedDrinkFlow
+        buddyTransientFlow
     ) { values ->
         val todayIso = values[0] as String
         @Suppress("UNCHECKED_CAST")
@@ -75,8 +103,7 @@ class HomeViewModel(
         @Suppress("UNCHECKED_CAST")
         val allProgress = values[3] as List<com.example.database.DailyProgressEntity>
         val totalXp = values[4] as Int
-        val recentMilestone = values[5] as Int?
-        val justLogged = values[6] as Boolean
+        val transient = values[5] as BuddyTransientState
 
         val totalMl = entries.sumOf { it.amountMl }
         val safeGoal = prefs.dailyGoalMl.coerceAtLeast(1)
@@ -89,15 +116,17 @@ class HomeViewModel(
             goalMl = safeGoal,
             lastDrinkTimestampMillis = lastDrinkTs,
             preferences = prefs,
-            justLoggedMilestone = recentMilestone,
-            justLoggedDrink = justLogged
+            justLoggedMilestone = transient.recentMilestone,
+            justLoggedDrink = transient.justLoggedDrink,
+            justTappedCheer = transient.justTappedCheer,
+            nowMillis = transient.nowMillis
         )
         val (currentStreak, _) = GamificationUtils.calculateStreaks(allProgress, todayIso)
         val levelInfo = GamificationUtils.calculateLevel(totalXp)
 
         HomeUiState.Success(
-            greeting = DateUtils.greetingForHour(prefs.userName),
-            displayDate = DateUtils.formatDisplayDate(todayIso),
+            greeting = DateUtils.greetingForHour(prefs.userName, transient.nowMillis),
+            displayDate = DateUtils.formatDisplayDate(todayIso, transient.nowMillis),
             todayIso = todayIso,
             totalMl = totalMl,
             goalMl = safeGoal,
@@ -121,10 +150,12 @@ class HomeViewModel(
         )
 
     fun refreshDateIfNeeded() {
-        val currentIso = DateUtils.todayIso()
+        val now = System.currentTimeMillis()
+        val currentIso = DateUtils.todayIso(now)
         if (todayIsoFlow.value != currentIso) {
             todayIsoFlow.value = currentIso
         }
+        clockTickFlow.value = now
     }
 
     fun logWater(amountMl: Int, drinkType: DrinkType = DrinkType.WATER) {
@@ -133,11 +164,17 @@ class HomeViewModel(
         if (now - lastTapMillis < 220L) return
         lastTapMillis = now
 
-        refreshDateIfNeeded()
+        val currentIso = DateUtils.todayIso(now)
+        if (todayIsoFlow.value != currentIso) {
+            todayIsoFlow.value = currentIso
+        }
+        clockTickFlow.value = now
         dropletBurstTriggerFlow.value += 1
+        justTappedCheerFlow.value = false
         justLoggedDrinkFlow.value = true
 
-        viewModelScope.launch {
+        drinkResetJob?.cancel()
+        drinkResetJob = viewModelScope.launch {
             val prefs = repository.getCurrentPreferences()
             val result = repository.addWaterEntry(
                 amountMl = amountMl,
@@ -169,6 +206,7 @@ class HomeViewModel(
             delay(3200L)
             justLoggedDrinkFlow.value = false
             recentMilestoneFlow.value = null
+            clockTickFlow.value = System.currentTimeMillis()
         }
     }
 
@@ -177,24 +215,28 @@ class HomeViewModel(
             repository.deleteWaterEntry(entryId)
             justLoggedDrinkFlow.value = false
             recentMilestoneFlow.value = null
+            clockTickFlow.value = System.currentTimeMillis()
         }
     }
 
     fun updateEntry(entry: WaterEntryEntity) {
         viewModelScope.launch {
             repository.updateWaterEntry(entry)
+            clockTickFlow.value = System.currentTimeMillis()
         }
     }
 
     fun deleteEntry(entryId: Long) {
         viewModelScope.launch {
             repository.deleteWaterEntry(entryId)
+            clockTickFlow.value = System.currentTimeMillis()
         }
     }
 
     fun restoreEntry(entry: WaterEntryEntity) {
         viewModelScope.launch {
             repository.restoreWaterEntry(entry)
+            clockTickFlow.value = System.currentTimeMillis()
         }
     }
 
@@ -206,10 +248,13 @@ class HomeViewModel(
 
     fun triggerBuddyCheer() {
         dropletBurstTriggerFlow.value += 1
-        viewModelScope.launch {
-            justLoggedDrinkFlow.value = true
-            delay(2000L)
-            justLoggedDrinkFlow.value = false
+        clockTickFlow.value = System.currentTimeMillis()
+        justTappedCheerFlow.value = true
+        cheerResetJob?.cancel()
+        cheerResetJob = viewModelScope.launch {
+            delay(2200L)
+            justTappedCheerFlow.value = false
+            clockTickFlow.value = System.currentTimeMillis()
         }
     }
 
@@ -219,4 +264,11 @@ class HomeViewModel(
             unlockedQueueFlow.value = current.drop(1)
         }
     }
+
+    private data class BuddyTransientState(
+        val recentMilestone: Int?,
+        val justLoggedDrink: Boolean,
+        val justTappedCheer: Boolean,
+        val nowMillis: Long
+    )
 }

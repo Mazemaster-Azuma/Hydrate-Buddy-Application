@@ -77,9 +77,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
 import com.example.database.WaterEntryEntity
+import com.example.model.BuddyMood
 import com.example.model.DrinkType
 import com.example.model.HomeUiState
 import com.example.model.MeasurementUnit
@@ -119,6 +122,10 @@ fun HomeScreen(
     var editingEntry by remember { mutableStateOf<WaterEntryEntity?>(null) }
 
     LaunchedEffect(Unit) {
+        viewModel.refreshDateIfNeeded()
+    }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.refreshDateIfNeeded()
     }
 
@@ -427,11 +434,47 @@ private fun HomeDashboardContent(
                             .padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Speech bubble with smooth animated transitions
+                        val moodAccentColor = when (state.buddyMood) {
+                            BuddyMood.CELEBRATING -> extendedColors.success
+                            BuddyMood.EXCITED, BuddyMood.HAPPY -> MaterialTheme.colorScheme.primary
+                            BuddyMood.NEUTRAL -> MaterialTheme.colorScheme.secondary
+                            BuddyMood.THIRSTY -> extendedColors.warmAccent
+                            BuddyMood.SAD -> MaterialTheme.colorScheme.error
+                        }
+
+                        // Speech bubble + mood status pill with smooth animated transitions
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = moodAccentColor.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, moodAccentColor.copy(alpha = 0.28f)),
+                            modifier = Modifier.testTag("buddy_mood_badge")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(androidx.compose.foundation.shape.CircleShape)
+                                        .background(moodAccentColor)
+                                )
+                                Text(
+                                    text = "Feeling ${state.buddyMood.label}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = moodAccentColor
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
                         Surface(
                             shape = MaterialTheme.shapes.medium,
                             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
+                            border = BorderStroke(1.dp, moodAccentColor.copy(alpha = 0.35f)),
                             tonalElevation = 1.dp,
                             modifier = Modifier.animateContentSize()
                         ) {

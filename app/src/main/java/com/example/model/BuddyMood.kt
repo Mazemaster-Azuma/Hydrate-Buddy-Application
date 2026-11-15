@@ -5,6 +5,7 @@ enum class BuddyMood(val label: String) {
     EXCITED("Excited"),
     NEUTRAL("Waiting"),
     THIRSTY("Thirsty"),
+    SAD("Sad"),
     CELEBRATING("Celebrating")
 }
 
