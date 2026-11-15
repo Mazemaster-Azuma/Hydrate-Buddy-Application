@@ -4,7 +4,19 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*.*.*'
   workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type to execute'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+          - both
 
 permissions:
   contents: read
@@ -16,6 +28,9 @@ concurrency:
 jobs:
   build-debug-apk:
     name: Build Debug APK
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && (inputs.build_type == 'debug' || inputs.build_type == 'both'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -23,29 +38,34 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Detect project versions and Android module
+      - name: Detect and verify project toolchain compatibility
         id: detect
         shell: bash
         run: |
           set -euo pipefail
 
           # Detect Gradle version from gradle-wrapper.properties
-          GRADLE_VERSION="9.3.1"
-          if [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
-            PARSED_GRADLE=$(grep -E '^distributionUrl=' gradle/wrapper/gradle-wrapper.properties | sed -E 's/.*gradle-([0-9]+\.[0-9]+(\.[0-9]+)?)-.*/\1/' || true)
-            if [ -n "$PARSED_GRADLE" ]; then
-              GRADLE_VERSION="$PARSED_GRADLE"
-            fi
+          if [ ! -f "gradle/wrapper/gradle-wrapper.properties" ]; then
+            echo "::error::Missing gradle/wrapper/gradle-wrapper.properties"
+            exit 1
+          fi
+          GRADLE_VERSION=$(grep -E '^distributionUrl=' gradle/wrapper/gradle-wrapper.properties | sed -E 's/.*gradle-([0-9]+\.[0-9]+(\.[0-9]+)?)-.*/\1/' || true)
+          if [ -z "$GRADLE_VERSION" ]; then
+            echo "::error::Could not determine Gradle version from gradle/wrapper/gradle-wrapper.properties"
+            exit 1
           fi
 
           # Detect AGP and Kotlin versions from gradle/libs.versions.toml
-          AGP_VERSION="unknown"
+          AGP_VERSION=""
           KOTLIN_VERSION="unknown"
           if [ -f "gradle/libs.versions.toml" ]; then
-            PARSED_AGP=$(grep -E '^[[:space:]]*agp[[:space:]]*=' gradle/libs.versions.toml | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
+            AGP_VERSION=$(grep -E '^[[:space:]]*agp[[:space:]]*=' gradle/libs.versions.toml | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
             PARSED_KOTLIN=$(grep -E '^[[:space:]]*kotlin[[:space:]]*=' gradle/libs.versions.toml | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
-            [ -n "$PARSED_AGP" ] && AGP_VERSION="$PARSED_AGP"
             [ -n "$PARSED_KOTLIN" ] && KOTLIN_VERSION="$PARSED_KOTLIN"
+          fi
+          if [ -z "$AGP_VERSION" ]; then
+            echo "::error::Could not determine AGP version from gradle/libs.versions.toml"
+            exit 1
           fi
 
           # Detect Android application module from settings.gradle.kts + module build scripts
@@ -71,15 +91,36 @@ jobs:
             APP_GRADLE_PATH=":app"
           fi
 
-          # Detect Java compatibility and choose compatible JDK runtime for AGP + Gradle
-          JDK_VERSION="21"
+          # Verify Java / AGP / Gradle compatibility from project configuration
           BUILD_FILE="${APP_MODULE}/build.gradle.kts"
           [ ! -f "$BUILD_FILE" ] && BUILD_FILE="${APP_MODULE}/build.gradle"
+          AGP_MAJOR="${AGP_VERSION%%.*}"
+          GRADLE_MAJOR="${GRADLE_VERSION%%.*}"
+          if [ "$AGP_MAJOR" -ge 9 ] && [ "$GRADLE_MAJOR" -lt 9 ]; then
+            echo "::error::AGP ${AGP_VERSION} requires Gradle 9+, found ${GRADLE_VERSION}"
+            exit 1
+          fi
+
+          TOOLCHAIN_VER=""
+          SOURCE_COMPAT="unknown"
           if [ -f "$BUILD_FILE" ]; then
             TOOLCHAIN_VER=$(grep -oE 'jvmToolchain\([0-9]+\)' "$BUILD_FILE" | head -n1 | grep -oE '[0-9]+' || true)
-            if [ -n "$TOOLCHAIN_VER" ] && [ "$TOOLCHAIN_VER" -ge 17 ]; then
-              JDK_VERSION="$TOOLCHAIN_VER"
-            fi
+            SOURCE_COMPAT=$(grep -oE 'JavaVersion\.VERSION_[0-9_]+' "$BUILD_FILE" | head -n1 || echo "unknown")
+          fi
+
+          if [ -n "$TOOLCHAIN_VER" ]; then
+            JDK_VERSION="$TOOLCHAIN_VER"
+          elif [ "$AGP_MAJOR" -ge 9 ]; then
+            JDK_VERSION="21"
+          elif [ "$AGP_MAJOR" -eq 8 ]; then
+            JDK_VERSION="17"
+          else
+            JDK_VERSION="17"
+          fi
+
+          if [ "$AGP_MAJOR" -ge 8 ] && [ "$JDK_VERSION" -lt 17 ]; then
+            echo "::error::AGP ${AGP_VERSION} requires JDK 17 or newer, resolved JDK ${JDK_VERSION}"
+            exit 1
           fi
 
           # Verify Gradle wrapper files
@@ -99,9 +140,9 @@ jobs:
           echo "has_wrapper=${HAS_WRAPPER}" >> "$GITHUB_OUTPUT"
           echo "apk_dir=${APK_DIR}" >> "$GITHUB_OUTPUT"
 
-          echo "Detected configuration:"
+          echo "Verified toolchain configuration:"
           echo "  Application module : ${APP_GRADLE_PATH}"
-          echo "  JDK version        : ${JDK_VERSION}"
+          echo "  JDK runtime        : Temurin ${JDK_VERSION} (sourceCompatibility=${SOURCE_COMPAT})"
           echo "  Gradle version     : ${GRADLE_VERSION}"
           echo "  AGP version        : ${AGP_VERSION}"
           echo "  Kotlin version     : ${KOTLIN_VERSION}"
@@ -159,7 +200,7 @@ jobs:
             gradle "$TASK" --no-daemon --stacktrace
           fi
 
-      - name: Verify generated APK output
+      - name: Verify generated debug APK output
         shell: bash
         run: |
           set -euo pipefail
@@ -173,10 +214,10 @@ jobs:
             echo "::error::No .apk files produced in $APK_DIR"
             exit 1
           fi
-          echo "Generated APK(s):"
+          echo "Generated Debug APK(s):"
           echo "$APK_FILES"
           {
-            echo "### Hydrate Buddy APK Build Summary"
+            echo "### Hydrate Buddy Debug APK Build Summary"
             echo "- **Module**: \`${{ steps.detect.outputs.app_module }}\`"
             echo "- **JDK**: \`${{ steps.detect.outputs.jdk_version }}\`"
             echo "- **Gradle**: \`${{ steps.detect.outputs.gradle_version }}\`"
@@ -185,10 +226,279 @@ jobs:
             echo "- **APK Directory**: \`${APK_DIR}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload Hydrate Buddy APK artifact
+      - name: Upload Hydrate Buddy Debug APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: Hydrate-Buddy-APK
           path: ${{ steps.detect.outputs.apk_dir }}/*.apk
+          retention-days: 14
+          if-no-files-found: error
+
+  build-release-apk:
+    name: Build Signed Release APK
+    if: >-
+      (github.event_name == 'push' && github.ref_type == 'tag') ||
+      (github.event_name == 'workflow_dispatch' && (inputs.build_type == 'release' || inputs.build_type == 'both'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Validate release signing secrets availability
+        id: check_secrets
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          MISSING=""
+          [ -z "${KEYSTORE_BASE64:-}" ] && MISSING="${MISSING} KEYSTORE_BASE64"
+          [ -z "${STORE_PASSWORD:-}" ] && MISSING="${MISSING} STORE_PASSWORD"
+          [ -z "${KEY_ALIAS:-}" ] && MISSING="${MISSING} KEY_ALIAS"
+          [ -z "${KEY_PASSWORD:-}" ] && MISSING="${MISSING} KEY_PASSWORD"
+
+          if [ -n "$MISSING" ]; then
+            {
+              echo "### Signed Release APK Build Blocked"
+              echo "Missing required GitHub Actions Secrets:\`${MISSING# }\`."
+              echo "Unsigned release APKs are never built or uploaded."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Release build requested, but required GitHub Secrets are missing:${MISSING}"
+            exit 1
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Detect and verify project toolchain compatibility
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ ! -f "gradle/wrapper/gradle-wrapper.properties" ]; then
+            echo "::error::Missing gradle/wrapper/gradle-wrapper.properties"
+            exit 1
+          fi
+          GRADLE_VERSION=$(grep -E '^distributionUrl=' gradle/wrapper/gradle-wrapper.properties | sed -E 's/.*gradle-([0-9]+\.[0-9]+(\.[0-9]+)?)-.*/\1/' || true)
+          if [ -z "$GRADLE_VERSION" ]; then
+            echo "::error::Could not determine Gradle version from gradle/wrapper/gradle-wrapper.properties"
+            exit 1
+          fi
+
+          AGP_VERSION=""
+          KOTLIN_VERSION="unknown"
+          if [ -f "gradle/libs.versions.toml" ]; then
+            AGP_VERSION=$(grep -E '^[[:space:]]*agp[[:space:]]*=' gradle/libs.versions.toml | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
+            PARSED_KOTLIN=$(grep -E '^[[:space:]]*kotlin[[:space:]]*=' gradle/libs.versions.toml | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
+            [ -n "$PARSED_KOTLIN" ] && KOTLIN_VERSION="$PARSED_KOTLIN"
+          fi
+          if [ -z "$AGP_VERSION" ]; then
+            echo "::error::Could not determine AGP version from gradle/libs.versions.toml"
+            exit 1
+          fi
+
+          APP_MODULE=""
+          APP_GRADLE_PATH=""
+          if [ -f "settings.gradle.kts" ]; then
+            CANDIDATES=$(grep -oE 'include\("?:[^")]+?"?\)' settings.gradle.kts | sed -E 's/include\("?:?([^")]+)"?\)/\1/' || true)
+            for mod in $CANDIDATES; do
+              mod_dir="${mod//:/\/}"
+              if [ -f "${mod_dir}/build.gradle.kts" ] && grep -qE 'android\.application|com\.android\.application' "${mod_dir}/build.gradle.kts"; then
+                APP_MODULE="$mod_dir"
+                APP_GRADLE_PATH=":${mod}"
+                break
+              elif [ -f "${mod_dir}/build.gradle" ] && grep -qE 'android\.application|com\.android\.application' "${mod_dir}/build.gradle"; then
+                APP_MODULE="$mod_dir"
+                APP_GRADLE_PATH=":${mod}"
+                break
+              fi
+            done
+          fi
+          if [ -z "$APP_MODULE" ]; then
+            APP_MODULE="app"
+            APP_GRADLE_PATH=":app"
+          fi
+
+          BUILD_FILE="${APP_MODULE}/build.gradle.kts"
+          [ ! -f "$BUILD_FILE" ] && BUILD_FILE="${APP_MODULE}/build.gradle"
+          AGP_MAJOR="${AGP_VERSION%%.*}"
+          GRADLE_MAJOR="${GRADLE_VERSION%%.*}"
+          if [ "$AGP_MAJOR" -ge 9 ] && [ "$GRADLE_MAJOR" -lt 9 ]; then
+            echo "::error::AGP ${AGP_VERSION} requires Gradle 9+, found ${GRADLE_VERSION}"
+            exit 1
+          fi
+
+          TOOLCHAIN_VER=""
+          SOURCE_COMPAT="unknown"
+          if [ -f "$BUILD_FILE" ]; then
+            TOOLCHAIN_VER=$(grep -oE 'jvmToolchain\([0-9]+\)' "$BUILD_FILE" | head -n1 | grep -oE '[0-9]+' || true)
+            SOURCE_COMPAT=$(grep -oE 'JavaVersion\.VERSION_[0-9_]+' "$BUILD_FILE" | head -n1 || echo "unknown")
+          fi
+
+          if [ -n "$TOOLCHAIN_VER" ]; then
+            JDK_VERSION="$TOOLCHAIN_VER"
+          elif [ "$AGP_MAJOR" -ge 9 ]; then
+            JDK_VERSION="21"
+          elif [ "$AGP_MAJOR" -eq 8 ]; then
+            JDK_VERSION="17"
+          else
+            JDK_VERSION="17"
+          fi
+
+          if [ "$AGP_MAJOR" -ge 8 ] && [ "$JDK_VERSION" -lt 17 ]; then
+            echo "::error::AGP ${AGP_VERSION} requires JDK 17 or newer, resolved JDK ${JDK_VERSION}"
+            exit 1
+          fi
+
+          HAS_WRAPPER="false"
+          if [ -f "gradlew" ] && [ -f "gradle/wrapper/gradle-wrapper.jar" ] && [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
+            HAS_WRAPPER="true"
+          fi
+
+          APK_DIR="${APP_MODULE}/build/outputs/apk/release"
+
+          echo "gradle_version=${GRADLE_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "agp_version=${AGP_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "kotlin_version=${KOTLIN_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "app_module=${APP_MODULE}" >> "$GITHUB_OUTPUT"
+          echo "app_gradle_path=${APP_GRADLE_PATH}" >> "$GITHUB_OUTPUT"
+          echo "jdk_version=${JDK_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "has_wrapper=${HAS_WRAPPER}" >> "$GITHUB_OUTPUT"
+          echo "apk_dir=${APK_DIR}" >> "$GITHUB_OUTPUT"
+
+          echo "Verified toolchain configuration:"
+          echo "  Application module : ${APP_GRADLE_PATH}"
+          echo "  JDK runtime        : Temurin ${JDK_VERSION} (sourceCompatibility=${SOURCE_COMPAT})"
+          echo "  Gradle version     : ${GRADLE_VERSION}"
+          echo "  AGP version        : ${AGP_VERSION}"
+          echo "  Kotlin version     : ${KOTLIN_VERSION}"
+          echo "  Gradle wrapper OK  : ${HAS_WRAPPER}"
+          echo "  APK output dir     : ${APK_DIR}"
+
+      - name: Set up JDK ${{ steps.detect.outputs.jdk_version }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ steps.detect.outputs.jdk_version }}
+
+      - name: Set up Gradle (via wrapper)
+        if: steps.detect.outputs.has_wrapper == 'true'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Gradle (fallback ${{ steps.detect.outputs.gradle_version }})
+        if: steps.detect.outputs.has_wrapper != 'true'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ steps.detect.outputs.gradle_version }}
+
+      - name: Decode release keystore into temporary runner storage
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          TARGET_KEYSTORE="${RUNNER_TEMP}/release-keystore.jks"
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '\r\n' | base64 --decode > "$TARGET_KEYSTORE"
+          if [ ! -s "$TARGET_KEYSTORE" ]; then
+            echo "::error::Decoded release keystore file is empty."
+            rm -f "$TARGET_KEYSTORE"
+            exit 1
+          fi
+          chmod 600 "$TARGET_KEYSTORE"
+          echo "KEYSTORE_PATH=${TARGET_KEYSTORE}" >> "$GITHUB_ENV"
+
+      - name: Build Signed Release APK
+        shell: bash
+        env:
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          TASK="${{ steps.detect.outputs.app_gradle_path }}:assembleRelease"
+          if [ "${{ steps.detect.outputs.has_wrapper }}" = "true" ]; then
+            chmod +x ./gradlew
+            ./gradlew "$TASK" --no-daemon --stacktrace
+          else
+            echo "::warning::Gradle wrapper files missing; building with setup-gradle (${{ steps.detect.outputs.gradle_version }})."
+            gradle "$TASK" --no-daemon --stacktrace
+          fi
+
+      - name: Verify release APK signature with apksigner
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK_DIR="${{ steps.detect.outputs.apk_dir }}"
+          if [ ! -d "$APK_DIR" ]; then
+            echo "::error::Release APK output directory not found: $APK_DIR"
+            exit 1
+          fi
+
+          UNSIGNED_APKS=$(find "$APK_DIR" -maxdepth 1 -type f -name "*-unsigned.apk" | sort)
+          if [ -n "$UNSIGNED_APKS" ]; then
+            echo "::error::Unsigned release APK detected; aborting upload."
+            exit 1
+          fi
+
+          SIGNED_APKS=$(find "$APK_DIR" -maxdepth 1 -type f -name "*.apk" ! -name "*-unsigned.apk" | sort)
+          if [ -z "$SIGNED_APKS" ]; then
+            echo "::error::No signed release .apk files produced in $APK_DIR"
+            exit 1
+          fi
+
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          APKSIGNER_BIN=""
+          if [ -n "$SDK_ROOT" ] && [ -d "$SDK_ROOT/build-tools" ]; then
+            APKSIGNER_BIN=$(find "$SDK_ROOT/build-tools" -maxdepth 2 -type f -name "apksigner" | sort -V | tail -n 1 || true)
+          fi
+          if [ -z "$APKSIGNER_BIN" ]; then
+            APKSIGNER_BIN=$(command -v apksigner || true)
+          fi
+          if [ -z "$APKSIGNER_BIN" ]; then
+            echo "::error::apksigner binary not found in Android SDK build-tools or PATH."
+            exit 1
+          fi
+
+          {
+            echo "### Hydrate Buddy Signed Release APK Summary"
+            echo "- **Module**: \`${{ steps.detect.outputs.app_module }}\`"
+            echo "- **JDK**: \`${{ steps.detect.outputs.jdk_version }}\`"
+            echo "- **Gradle**: \`${{ steps.detect.outputs.gradle_version }}\`"
+            echo "- **AGP**: \`${{ steps.detect.outputs.agp_version }}\`"
+            echo "- **Kotlin**: \`${{ steps.detect.outputs.kotlin_version }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          while IFS= read -r apk; do
+            [ -z "$apk" ] && continue
+            echo "Verifying APK signature: $apk"
+            VERIFY_OUT=$("$APKSIGNER" verify --verbose --print-certs "$apk")
+            echo "$VERIFY_OUT" | grep -E "^(Verifies|Verified using|Signer #1 certificate DN:|Signer #1 certificate SHA-256 digest:|Signer #1 certificate SHA-1 digest:)"
+            SHA256_LINE=$(echo "$VERIFY_OUT" | grep -E "^Signer #1 certificate SHA-256 digest:" | head -n1 || true)
+            DN_LINE=$(echo "$VERIFY_OUT" | grep -E "^Signer #1 certificate DN:" | head -n1 || true)
+            {
+              echo "- **APK File**: \`$(basename "$apk")\`"
+              [ -n "$DN_LINE" ] && echo "- **Signer DN**: \`${DN_LINE#Signer #1 certificate DN: }\`"
+              [ -n "$SHA256_LINE" ] && echo "- **Signing SHA-256**: \`${SHA256_LINE#Signer #1 certificate SHA-256 digest: }\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          done <<< "$SIGNED_APKS"
+
+      - name: Clean up temporary release keystore
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f "${RUNNER_TEMP}/release-keystore.jks"
+
+      - name: Upload Hydrate Buddy Release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hydrate-Buddy-Release-APK
+          path: |
+            ${{ steps.detect.outputs.apk_dir }}/*.apk
+            !${{ steps.detect.outputs.apk_dir }}/*-unsigned.apk
           retention-days: 14
           if-no-files-found: error

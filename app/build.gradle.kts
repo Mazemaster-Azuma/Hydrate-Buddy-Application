@@ -23,15 +23,52 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
-  // Do not remove or modify these signingConfigs. They are necessary for building, installing,
-  // and updating Android apps in AI Studio.
+  // Release signing reads strictly from environment variables (never hardcoded or debug-fallback).
+  // Debug signingConfig ("debugConfig") is preserved intact for debug builds and AI Studio preview.
+  val releaseKeystorePath = System.getenv("KEYSTORE_PATH")?.trim()?.takeIf { it.isNotEmpty() }
+  val releaseStorePassword = System.getenv("STORE_PASSWORD")?.takeIf { it.isNotEmpty() }
+  val releaseKeyAlias = System.getenv("KEY_ALIAS")?.trim()?.takeIf { it.isNotEmpty() }
+  val releaseKeyPassword = System.getenv("KEY_PASSWORD")?.takeIf { it.isNotEmpty() }
+  val releaseKeystoreFile = releaseKeystorePath?.let { file(it) }
+  val hasReleaseSigning =
+    releaseKeystoreFile != null &&
+      releaseKeystoreFile.isFile &&
+      releaseStorePassword != null &&
+      releaseKeyAlias != null &&
+      releaseKeyPassword != null
+
+  val releasePackagingTaskPaths =
+    setOf(
+      "assembleRelease",
+      "packageRelease",
+      "bundleRelease",
+      "packageReleaseBundle",
+      "signReleaseBundle",
+      "writeReleaseSigningConfigVersions",
+      "validateSigningRelease",
+    )
+      .map { taskName -> "${if (path == ":") "" else path}:$taskName" }
+      .toSet()
+
+  gradle.taskGraph.whenReady {
+    val requestsReleasePackaging = allTasks.any { task -> task.path in releasePackagingTaskPaths }
+    if (requestsReleasePackaging && !hasReleaseSigning) {
+      throw GradleException(
+        "Release signing credentials are missing or incomplete. " +
+          "Provide KEYSTORE_PATH (pointing to an existing keystore file), " +
+          "STORE_PASSWORD, KEY_ALIAS, and KEY_PASSWORD before running release packaging tasks."
+      )
+    }
+  }
+
   signingConfigs {
     create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+      if (hasReleaseSigning) {
+        storeFile = releaseKeystoreFile
+        storePassword = releaseStorePassword
+        keyAlias = releaseKeyAlias
+        keyPassword = releaseKeyPassword
+      }
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")
@@ -46,9 +83,7 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
-      // AI Studio.
-      signingConfig = signingConfigs.getByName("release")
+      signingConfig = if (hasReleaseSigning) signingConfigs.getByName("release") else null
     }
     debug {
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
