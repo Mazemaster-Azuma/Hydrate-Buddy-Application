@@ -124,7 +124,7 @@ fun OnboardingScreen(
         }
     }
 
-    val intervals = remember { listOf(30, 60, 90, 120, 180) }
+    val intervals = remember { listOf(15, 30, 45, 60, 90, 120, 180) }
     val suggestedGoals = remember(state.unit) { UnitConverter.suggestedDailyGoalsMl(state.unit) }
     val wakeTimeLabel = remember(state.wakeHour, state.wakeMinute) {
         DateUtils.formatHourMinute(state.wakeHour, state.wakeMinute)

@@ -5,8 +5,8 @@ import java.util.Calendar
 import java.util.TimeZone
 
 object ReminderScheduleCalculator {
-    const val MIN_INTERVAL_MINUTES = 15
-    private const val MIN_FUTURE_LEAD_MILLIS = 5_000L
+    const val MIN_INTERVAL_MINUTES = 1
+    private const val MIN_FUTURE_LEAD_MILLIS = 1_000L
 
     fun computeNextReminderTriggerMillis(
         nowMillis: Long,
@@ -21,7 +21,7 @@ object ReminderScheduleCalculator {
         val safeIntervalMinutes = intervalMinutes.coerceAtLeast(MIN_INTERVAL_MINUTES)
         val intervalMillis = safeIntervalMinutes * 60_000L
 
-        var candidate = if (previousTriggerAtMillis != null && previousTriggerAtMillis > 0L) {
+        val candidate = if (previousTriggerAtMillis != null && previousTriggerAtMillis > 0L) {
             val nextFromPrev = previousTriggerAtMillis + intervalMillis
             if (nowMillis - previousTriggerAtMillis > intervalMillis * 2L) {
                 // Large gap (device powered off or long Doze) -> anchor cleanly from now
@@ -60,12 +60,17 @@ object ReminderScheduleCalculator {
         wakeMinute: Int,
         bedHour: Int,
         bedMinute: Int,
-        timeZone: TimeZone = TimeZone.getDefault()
+        timeZone: TimeZone = TimeZone.getDefault(),
+        bedGraceMinutes: Int = 0
     ): Boolean {
         val cal = Calendar.getInstance(timeZone).apply { timeInMillis = timestampMillis }
         val currentMinutes = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
         val wakeMinutes = wakeHour * 60 + wakeMinute
-        val bedMinutes = bedHour * 60 + bedMinute
+        val bedMinutes = (bedHour * 60 + bedMinute + bedGraceMinutes.coerceAtLeast(0)) % (24 * 60)
+
+        if (wakeHour == bedHour && wakeMinute == bedMinute) {
+            return true
+        }
 
         return if (wakeMinutes <= bedMinutes) {
             currentMinutes in wakeMinutes..bedMinutes

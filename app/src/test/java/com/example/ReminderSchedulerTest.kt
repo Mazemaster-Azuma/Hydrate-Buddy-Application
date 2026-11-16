@@ -1,16 +1,23 @@
 package com.example
 
+import android.Manifest
 import android.app.AlarmManager
+import android.app.Application
 import android.app.Notification
+import android.app.NotificationManager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.example.model.DrinkType
 import com.example.model.MeasurementUnit
 import com.example.model.UserPreferences
+import com.example.notifications.HydrationNotificationReceiver
 import com.example.notifications.NotificationHelper
 import com.example.notifications.ReminderScheduleCalculator
 import com.example.notifications.ReminderScheduler
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -145,13 +152,14 @@ class ReminderSchedulerTest {
         val initialTrigger = ReminderScheduler.getNextScheduledReminderMillis(context)
         assertNotNull(initialTrigger)
         assertEquals(1, shadowAlarm.scheduledAlarms.size)
-        assertNull(alarmManager.nextAlarmClock)
+        assertNotNull(alarmManager.nextAlarmClock)
+        assertEquals(initialTrigger, alarmManager.nextAlarmClock?.triggerTime)
 
         // Simulating app reopen (forceReschedule = false) keeps the exact same trigger time
         ReminderScheduler.syncReminders(context, prefs, forceReschedule = false)
         assertEquals(initialTrigger, ReminderScheduler.getNextScheduledReminderMillis(context))
 
-        // Enabling Ringing Alarm Mode keeps the same trigger time and upgrades to AlarmClockInfo
+        // Enabling Ringing Alarm Mode keeps the same trigger time and AlarmClockInfo
         val ringingPrefs = prefs.copy(ringingReminderEnabled = true)
         ReminderScheduler.syncReminders(context, ringingPrefs, forceReschedule = false)
         assertEquals(initialTrigger, ReminderScheduler.getNextScheduledReminderMillis(context))
@@ -197,6 +205,67 @@ class ReminderSchedulerTest {
 
         ReminderScheduler.cancelSnoozeReminder(context)
         assertEquals(1, shadowAlarm.scheduledAlarms.size)
+    }
+
+    @Test
+    fun `claimDueReminderAndScheduleNext deduplicates rapid triggers and advances by exact interval`() {
+        val prefs = UserPreferences(
+            onboardingCompleted = true,
+            remindersEnabled = true,
+            ringingReminderEnabled = false,
+            reminderIntervalMinutes = 15,
+            wakeHour = 0,
+            wakeMinute = 0,
+            bedHour = 0,
+            bedMinute = 0
+        )
+
+        ReminderScheduler.syncReminders(context, prefs, forceReschedule = true)
+        val dueSlot = ReminderScheduler.getNextScheduledReminderMillis(context)!!
+
+        // First claim at the due time succeeds and advances next slot by 15 minutes
+        val firstClaimed = ReminderScheduler.claimDueReminderAndScheduleNext(context, nowMillis = dueSlot)
+        assertTrue(firstClaimed)
+        assertEquals(dueSlot + 15 * 60_000L, ReminderScheduler.getNextScheduledReminderMillis(context))
+
+        // Duplicate trigger 500ms later (e.g. both in-process timer and AlarmManager firing) is ignored
+        val duplicateClaimed = ReminderScheduler.claimDueReminderAndScheduleNext(context, nowMillis = dueSlot + 500L)
+        assertFalse(duplicateClaimed)
+        assertEquals(dueSlot + 15 * 60_000L, ReminderScheduler.getNextScheduledReminderMillis(context))
+    }
+
+    @Test
+    fun `deliverReminderIfEligible continues delivering notifications even after daily goal is reached`() = runBlocking {
+        val app = context as HydrateBuddyApplication
+        Shadows.shadowOf(app as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val repo = app.repository
+        repo.clearAllData()
+        repo.updatePreferences { current ->
+            current.copy(
+                onboardingCompleted = true,
+                remindersEnabled = true,
+                ringingReminderEnabled = false,
+                dailyGoalMl = 1000,
+                wakeHour = 0,
+                wakeMinute = 0,
+                bedHour = 0,
+                bedMinute = 0
+            )
+        }
+        repo.addWaterEntry(amountMl = 1200, drinkType = DrinkType.WATER) // Exceeds dailyGoalMl (1000ml)
+
+        NotificationHelper.ensureChannel(context)
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.cancelAll()
+
+        HydrationNotificationReceiver.deliverReminderIfEligible(
+            context = context,
+            repository = repo,
+            isSnooze = false
+        )
+
+        val activeNotifications = Shadows.shadowOf(notificationManager).allNotifications
+        assertEquals(1, activeNotifications.size)
     }
 
     @Test

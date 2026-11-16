@@ -8,6 +8,7 @@ import com.example.model.ThemeMode
 import com.example.model.UserPreferences
 import com.example.notifications.AlarmRingController
 import com.example.notifications.NotificationHelper
+import com.example.notifications.ReminderScheduleCalculator
 import com.example.notifications.ReminderScheduler
 import com.example.repository.HydrationRepository
 import com.example.updater.AppUpdateCoordinator
@@ -94,15 +95,17 @@ class SettingsViewModel(
 
     fun updateReminderInterval(minutes: Int) {
         viewModelScope.launch {
-            val safeMinutes = minutes.coerceAtLeast(15)
+            val safeMinutes = minutes.coerceAtLeast(ReminderScheduleCalculator.MIN_INTERVAL_MINUTES)
             val updated = repository.updatePreferences {
                 it.copy(reminderIntervalMinutes = safeMinutes)
             }
-            withContext(Dispatchers.IO) {
+            val nextMs = withContext(Dispatchers.IO) {
                 ReminderScheduler.syncReminders(appContext, updated, forceReschedule = true)
+                ReminderScheduler.getNextScheduledReminderMillis(appContext)
             }
             val label = if (safeMinutes >= 60 && safeMinutes % 60 == 0) "${safeMinutes / 60}h" else "${safeMinutes}m"
-            _statusMessages.emit("Reminders set to every $label")
+            val nextTimeSuffix = nextMs?.let { " • Next at ${DateUtils.formatTime(it)}" }.orEmpty()
+            _statusMessages.emit("Reminders set to every $label$nextTimeSuffix")
         }
     }
 

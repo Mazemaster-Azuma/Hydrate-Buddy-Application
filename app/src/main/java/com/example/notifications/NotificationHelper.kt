@@ -175,6 +175,7 @@ object NotificationHelper {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setWhen(System.currentTimeMillis())
             .setShowWhen(true)
+            .setOnlyAlertOnce(false)
             .setSilent(silent)
             .setContentIntent(openPendingIntent)
             .setAutoCancel(true)
@@ -196,7 +197,9 @@ object NotificationHelper {
             return
         }
         try {
-            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+            val manager = NotificationManagerCompat.from(context)
+            manager.cancel(NOTIFICATION_ID)
+            manager.notify(NOTIFICATION_ID, notification)
         } catch (_: SecurityException) {
             // Permission revoked concurrently
         }
