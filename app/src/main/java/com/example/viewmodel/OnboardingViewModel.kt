@@ -118,7 +118,7 @@ class OnboardingViewModel(
                     onboardingCompleted = true
                 )
             }
-            ReminderScheduler.syncReminders(appContext, updated)
+            ReminderScheduler.syncReminders(appContext, updated, forceReschedule = true)
             _uiState.update { it.copy(isSaving = false) }
             onFinished()
         }

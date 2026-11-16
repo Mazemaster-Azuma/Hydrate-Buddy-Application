@@ -2,6 +2,7 @@ package com.example.notifications
 
 import android.content.Context
 import android.content.Intent
+import android.os.PowerManager
 import androidx.compose.runtime.Immutable
 import androidx.core.content.ContextCompat
 import com.example.model.MeasurementUnit
@@ -22,6 +23,9 @@ object AlarmRingController {
     private val _ringState = MutableStateFlow<AlarmRingState?>(null)
     val ringState: StateFlow<AlarmRingState?> = _ringState.asStateFlow()
 
+    @Volatile
+    private var screenWakeLock: PowerManager.WakeLock? = null
+
     fun startRinging(
         context: Context,
         userName: String,
@@ -32,6 +36,8 @@ object AlarmRingController {
     ) {
         if (!NotificationHelper.hasNotificationPermission(context)) return
 
+        wakeScreenBriefly(context)
+
         val quickAmountMl = if (unit == MeasurementUnit.OZ) 237 else 250
         _ringState.value = AlarmRingState(
             userName = userName,
@@ -40,8 +46,6 @@ object AlarmRingController {
             unit = unit,
             quickAmountMl = quickAmountMl
         )
-
-        NotificationHelper.wakeUpScreen(context, durationMillis = 20_000L)
 
         val serviceIntent = Intent(context, HydrationAlarmService::class.java).apply {
             putExtra(HydrationAlarmService.EXTRA_USER_NAME, userName)
@@ -58,7 +62,7 @@ object AlarmRingController {
 
         if (!startedService) {
             // Fallback for Android 12+ background FGS restrictions:
-            // Post an insistent high-priority alarm notification that loops sound/vibration.
+            // Post an insistent high-priority alarm notification that wakes screen and loops sound/vibration.
             NotificationHelper.showInsistentAlarmNotification(
                 context = context,
                 userName = userName,
@@ -71,6 +75,7 @@ object AlarmRingController {
 
     fun stopRinging(context: Context) {
         _ringState.value = null
+        releaseScreenWakeLock()
         runCatching {
             context.stopService(Intent(context, HydrationAlarmService::class.java))
         }
@@ -79,5 +84,36 @@ object AlarmRingController {
 
     internal fun clearStateOnly() {
         _ringState.value = null
+        releaseScreenWakeLock()
+    }
+
+    @Suppress("DEPRECATION")
+    internal fun wakeScreenBriefly(context: Context, durationMillis: Long = 6_000L) {
+        runCatching {
+            val powerManager = context.applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                ?: return
+            if (!powerManager.isInteractive) {
+                releaseScreenWakeLock()
+                val wakeLock = powerManager.newWakeLock(
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                        PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                        PowerManager.ON_AFTER_RELEASE,
+                    "HydrateBuddy:AlarmScreenWake"
+                ).apply {
+                    setReferenceCounted(false)
+                    acquire(durationMillis)
+                }
+                screenWakeLock = wakeLock
+            }
+        }
+    }
+
+    private fun releaseScreenWakeLock() {
+        runCatching {
+            screenWakeLock?.let { wl ->
+                if (wl.isHeld) wl.release()
+            }
+        }
+        screenWakeLock = null
     }
 }

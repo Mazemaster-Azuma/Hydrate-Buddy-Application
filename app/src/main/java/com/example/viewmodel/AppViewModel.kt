@@ -14,6 +14,7 @@ import com.example.updater.AppUpdateCoordinator
 import com.example.updater.UpdateCheckUiState
 import com.example.utils.SoundFeedbackPlayer
 import androidx.compose.runtime.Immutable
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -63,12 +64,15 @@ class AppViewModel(
     }
 
     fun onForegroundResumed() {
-        repository.refreshCurrentDate()
         updateCoordinator.onForegroundResumed()
-    }
-
-    fun onDayOrTimeChanged() {
-        repository.refreshCurrentDate()
+        viewModelScope.launch(Dispatchers.IO) {
+            val prefs = repository.getCurrentPreferences()
+            ReminderScheduler.syncReminders(
+                context = appContext,
+                prefs = prefs,
+                forceReschedule = false
+            )
+        }
     }
 
     fun startAppUpdate() {
@@ -100,7 +104,11 @@ class AppViewModel(
 
     fun snoozeAlarm() {
         AlarmRingController.stopRinging(appContext)
-        ReminderScheduler.scheduleSnoozeReminder(appContext, snoozeMinutes = 10)
+        ReminderScheduler.scheduleSnoozeReminder(
+            context = appContext,
+            snoozeMinutes = 10,
+            ringingMode = true
+        )
     }
 
     fun stopAlarm() {

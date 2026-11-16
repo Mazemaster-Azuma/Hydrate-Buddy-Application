@@ -477,6 +477,24 @@ fun AlarmRingingDialog(
     onSnooze: () -> Unit,
     onStop: () -> Unit
 ) {
+    Dialog(onDismissRequest = onStop) {
+        AlarmRingingCard(
+            ringState = ringState,
+            onLogAndStop = onLogAndStop,
+            onSnooze = onSnooze,
+            onStop = onStop
+        )
+    }
+}
+
+@Composable
+fun AlarmRingingCard(
+    ringState: AlarmRingState,
+    onLogAndStop: (Int) -> Unit,
+    onSnooze: () -> Unit,
+    onStop: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val quickLabel = UnitConverter.quickAddButtonLabel(ringState.quickAmountMl, ringState.unit)
     val remainingMl = (ringState.goalMl - ringState.totalMl).coerceAtLeast(0)
     val greetingTitle = if (ringState.userName.isNotBlank()) {
@@ -485,128 +503,126 @@ fun AlarmRingingDialog(
         "Time for a refreshing sip!"
     }
 
-    Dialog(onDismissRequest = onStop) {
-        Surface(
-            shape = MaterialTheme.shapes.extraLarge,
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 6.dp,
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("alarm_ringing_dialog")
+    ) {
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("alarm_ringing_dialog")
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+            Surface(
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.primaryContainer
             ) {
-                Surface(
-                    shape = MaterialTheme.shapes.large,
-                    color = MaterialTheme.colorScheme.primaryContainer
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Alarm,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Text(
-                            text = "Hydration Alarm Ringing",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-
-                WaterBuddyCanvas(
-                    mood = BuddyMood.EXCITED,
-                    size = 112.dp
-                )
-
-                Text(
-                    text = greetingTitle,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-
-                Text(
-                    text = if (remainingMl > 0) {
-                        "Progress: ${UnitConverter.formatVolume(ringState.totalMl, ringState.unit)} / " +
-                            "${UnitConverter.formatVolume(ringState.goalMl, ringState.unit)} " +
-                            "(${UnitConverter.formatVolume(remainingMl, ringState.unit)} left)"
-                    } else {
-                        "Progress: ${UnitConverter.formatVolume(ringState.totalMl, ringState.unit)} / " +
-                            UnitConverter.formatVolume(ringState.goalMl, ringState.unit)
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Button(
-                    onClick = { onLogAndStop(ringState.quickAmountMl) },
-                    shape = MaterialTheme.shapes.large,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .minimumInteractiveComponentSize()
-                        .testTag("alarm_log_stop_button")
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.WaterDrop,
+                        imageVector = Icons.Default.Alarm,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "Hydration Alarm Ringing",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            WaterBuddyCanvas(
+                mood = BuddyMood.EXCITED,
+                size = 112.dp
+            )
+
+            Text(
+                text = greetingTitle,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+
+            Text(
+                text = if (remainingMl > 0) {
+                    "Progress: ${UnitConverter.formatVolume(ringState.totalMl, ringState.unit)} / " +
+                        "${UnitConverter.formatVolume(ringState.goalMl, ringState.unit)} " +
+                        "(${UnitConverter.formatVolume(remainingMl, ringState.unit)} left)"
+                } else {
+                    "Progress: ${UnitConverter.formatVolume(ringState.totalMl, ringState.unit)} / " +
+                        UnitConverter.formatVolume(ringState.goalMl, ringState.unit)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Button(
+                onClick = { onLogAndStop(ringState.quickAmountMl) },
+                shape = MaterialTheme.shapes.large,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .minimumInteractiveComponentSize()
+                    .testTag("alarm_log_stop_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.WaterDrop,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("+$quickLabel (Log & Stop)")
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onSnooze,
+                    shape = MaterialTheme.shapes.large,
+                    modifier = Modifier
+                        .weight(1f)
+                        .minimumInteractiveComponentSize()
+                        .testTag("alarm_snooze_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Snooze,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("+$quickLabel (Log & Stop)")
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Snooze 10m")
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                TextButton(
+                    onClick = onStop,
+                    modifier = Modifier
+                        .weight(1f)
+                        .minimumInteractiveComponentSize()
+                        .testTag("alarm_stop_button")
                 ) {
-                    OutlinedButton(
-                        onClick = onSnooze,
-                        shape = MaterialTheme.shapes.large,
-                        modifier = Modifier
-                            .weight(1f)
-                            .minimumInteractiveComponentSize()
-                            .testTag("alarm_snooze_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Snooze,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Snooze 10m")
-                    }
-
-                    TextButton(
-                        onClick = onStop,
-                        modifier = Modifier
-                            .weight(1f)
-                            .minimumInteractiveComponentSize()
-                            .testTag("alarm_stop_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.NotificationsOff,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Stop")
-                    }
+                    Icon(
+                        imageVector = Icons.Default.NotificationsOff,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Stop")
                 }
             }
         }

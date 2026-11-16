@@ -47,14 +47,30 @@ class HydrationAlarmService : Service() {
             totalMl = totalMl,
             goalMl = goalMl,
             unit = unit,
-            silent = true
+            useSilentAudioChannel = true
         )
-        startForeground(NotificationHelper.ALARM_NOTIFICATION_ID, notification)
-        NotificationHelper.wakeUpScreen(this, durationMillis = 30_000L)
+        val startedForeground = runCatching {
+            startForeground(NotificationHelper.ALARM_NOTIFICATION_ID, notification)
+            true
+        }.getOrDefault(false)
+
+        if (!startedForeground) {
+            NotificationHelper.showInsistentAlarmNotification(
+                context = this,
+                userName = userName,
+                totalMl = totalMl,
+                goalMl = goalMl,
+                unit = unit
+            )
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         startAlarmSound()
         if (vibrationEnabled) {
             startAlarmVibration()
+        } else {
+            stopAlarmVibration()
         }
 
         // Safety auto-stop after 60 seconds if unanswered
@@ -127,6 +143,7 @@ class HydrationAlarmService : Service() {
 
     @Suppress("DEPRECATION")
     private fun startAlarmVibration() {
+        stopAlarmVibration()
         runCatching {
             val vib = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val manager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager

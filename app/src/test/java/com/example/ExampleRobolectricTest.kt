@@ -470,7 +470,7 @@ class ExampleRobolectricTest {
             totalMl = 500,
             goalMl = 2000,
             unit = MeasurementUnit.ML,
-            silent = true
+            useSilentAudioChannel = true
         )
 
         assertEquals(Notification.CATEGORY_ALARM, notification.category)
@@ -480,10 +480,13 @@ class ExampleRobolectricTest {
 
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         shadowOf(powerManager).setIsInteractive(false)
-        NotificationHelper.wakeUpScreen(context, durationMillis = 15_000L)
+        AlarmRingController.wakeScreenBriefly(context, durationMillis = 15_000L)
         val latestWakeLock = ShadowPowerManager.getLatestWakeLock()
         assertNotNull(latestWakeLock)
         assertTrue(latestWakeLock.isHeld)
+
+        AlarmRingController.stopRinging(context)
+        assertFalse(latestWakeLock.isHeld)
     }
 }
 

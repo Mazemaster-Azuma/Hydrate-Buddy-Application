@@ -38,11 +38,16 @@ class SettingsViewModel(
     )
 
     val updateState: StateFlow<UpdateCheckUiState> = updateCoordinator.uiState
+    val nextScheduledReminderMillis: StateFlow<Long?> = ReminderScheduler.nextScheduledTriggerMillis
     val currentVersionName: String get() = updateCoordinator.currentVersionName
     val currentVersionCode: Int get() = updateCoordinator.currentVersionCode
 
     private val _statusMessages = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val statusMessages: SharedFlow<String> = _statusMessages.asSharedFlow()
+
+    init {
+        ReminderScheduler.getNextScheduledReminderMillis(appContext)
+    }
 
     fun updateUserName(name: String) {
         viewModelScope.launch {
@@ -71,7 +76,7 @@ class SettingsViewModel(
                 it.copy(wakeHour = hour, wakeMinute = minute)
             }
             withContext(Dispatchers.IO) {
-                ReminderScheduler.syncReminders(appContext, updated)
+                ReminderScheduler.syncReminders(appContext, updated, forceReschedule = true)
             }
         }
     }
@@ -82,19 +87,22 @@ class SettingsViewModel(
                 it.copy(bedHour = hour, bedMinute = minute)
             }
             withContext(Dispatchers.IO) {
-                ReminderScheduler.syncReminders(appContext, updated)
+                ReminderScheduler.syncReminders(appContext, updated, forceReschedule = true)
             }
         }
     }
 
     fun updateReminderInterval(minutes: Int) {
         viewModelScope.launch {
+            val safeMinutes = minutes.coerceAtLeast(15)
             val updated = repository.updatePreferences {
-                it.copy(reminderIntervalMinutes = minutes.coerceAtLeast(15))
+                it.copy(reminderIntervalMinutes = safeMinutes)
             }
             withContext(Dispatchers.IO) {
-                ReminderScheduler.syncReminders(appContext, updated)
+                ReminderScheduler.syncReminders(appContext, updated, forceReschedule = true)
             }
+            val label = if (safeMinutes >= 60 && safeMinutes % 60 == 0) "${safeMinutes / 60}h" else "${safeMinutes}m"
+            _statusMessages.emit("Reminders set to every $label")
         }
     }
 
@@ -107,19 +115,29 @@ class SettingsViewModel(
                 AlarmRingController.stopRinging(appContext)
             }
             withContext(Dispatchers.IO) {
-                ReminderScheduler.syncReminders(appContext, updated)
+                ReminderScheduler.syncReminders(appContext, updated, forceReschedule = enabled)
             }
         }
     }
 
     fun setRingingReminderEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            repository.updatePreferences {
+            val updated = repository.updatePreferences {
                 it.copy(ringingReminderEnabled = enabled)
             }
             if (!enabled) {
                 AlarmRingController.stopRinging(appContext)
             }
+            withContext(Dispatchers.IO) {
+                ReminderScheduler.syncReminders(appContext, updated, forceReschedule = false)
+            }
+        }
+    }
+
+    fun resyncRemindersOnResume() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val prefs = repository.getCurrentPreferences()
+            ReminderScheduler.syncReminders(appContext, prefs, forceReschedule = false)
         }
     }
 

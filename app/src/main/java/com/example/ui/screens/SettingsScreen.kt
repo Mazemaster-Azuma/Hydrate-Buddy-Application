@@ -1,7 +1,10 @@
 package com.example.ui.screens
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -96,6 +99,7 @@ import com.example.R
 import com.example.model.MeasurementUnit
 import com.example.model.ThemeMode
 import com.example.notifications.NotificationHelper
+import com.example.notifications.ReminderScheduler
 import com.example.ui.components.DailyGoalEditDialog
 import com.example.ui.components.HydrateTimePickerDialog
 import com.example.ui.components.pressBounce
@@ -117,6 +121,7 @@ fun SettingsScreen(
 ) {
     val prefs by viewModel.preferencesState.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
+    val nextScheduledReminderMillis by viewModel.nextScheduledReminderMillis.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -126,12 +131,21 @@ fun SettingsScreen(
     var hasNotifPermission by remember {
         mutableStateOf(NotificationHelper.hasNotificationPermission(context))
     }
+    var canScheduleExactAlarms by remember {
+        mutableStateOf(ReminderScheduler.canScheduleExactAlarms(context))
+    }
+    var canUseFullScreenIntent by remember {
+        mutableStateOf(NotificationHelper.canUseFullScreenIntent(context))
+    }
     var pendingTestReminder by remember { mutableStateOf(false) }
 
     DisposableEffect(lifecycleOwner, context) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 hasNotifPermission = NotificationHelper.hasNotificationPermission(context)
+                canScheduleExactAlarms = ReminderScheduler.canScheduleExactAlarms(context)
+                canUseFullScreenIntent = NotificationHelper.canUseFullScreenIntent(context)
+                viewModel.resyncRemindersOnResume()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -277,13 +291,16 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text("Enable Reminders", style = MaterialTheme.typography.titleSmall)
+                                val nextLabel = nextScheduledReminderMillis?.let {
+                                    " • Next ${DateUtils.formatTime(it)}"
+                                }.orEmpty()
                                 Text(
                                     text = when {
                                         !prefs.remindersEnabled -> "Reminders are off"
                                         withinWakingNow && prefs.ringingReminderEnabled ->
-                                            "Active • Alarm Ring • Every ${prefs.reminderIntervalMinutes}m"
-                                        withinWakingNow -> "Active • Notification • Every ${prefs.reminderIntervalMinutes}m"
-                                        else -> "Paused during sleep hours"
+                                            "Active • Alarm Ring • Every ${prefs.reminderIntervalMinutes}m$nextLabel"
+                                        withinWakingNow -> "Active • Notification • Every ${prefs.reminderIntervalMinutes}m$nextLabel"
+                                        else -> "Paused during sleep hours$nextLabel"
                                     },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -381,6 +398,109 @@ fun SettingsScreen(
                         }
                     }
 
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                        prefs.remindersEnabled &&
+                        !canScheduleExactAlarms
+                    ) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            modifier = Modifier.testTag("settings_exact_alarm_banner")
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Allow exact alarms so reminders & alarm mode ring right on schedule",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(
+                                    onClick = {
+                                        val packageUri = Uri.fromParts("package", context.packageName, null)
+                                        val exactIntent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, packageUri).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        val opened = runCatching {
+                                            context.startActivity(exactIntent)
+                                            true
+                                        }.getOrDefault(false)
+                                        if (!opened) {
+                                            val fallbackIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri).apply {
+                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                            runCatching { context.startActivity(fallbackIntent) }
+                                        }
+                                    },
+                                    modifier = Modifier.testTag("settings_exact_alarm_allow_button")
+                                ) {
+                                    Text("Allow")
+                                }
+                            }
+                        }
+                    }
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                        prefs.remindersEnabled &&
+                        prefs.ringingReminderEnabled &&
+                        !canUseFullScreenIntent
+                    ) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            modifier = Modifier.testTag("settings_fullscreen_alarm_banner")
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Allow full-screen alarms so ringing reminders wake up your lock screen",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(
+                                    onClick = {
+                                        val packageUri = Uri.fromParts("package", context.packageName, null)
+                                        val fullScreenIntent = Intent(
+                                            Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                                            packageUri
+                                        ).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        val opened = runCatching {
+                                            context.startActivity(fullScreenIntent)
+                                            true
+                                        }.getOrDefault(false)
+                                        if (!opened) {
+                                            val fallbackIntent = Intent(
+                                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                packageUri
+                                            ).apply {
+                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                            runCatching { context.startActivity(fallbackIntent) }
+                                        }
+                                    },
+                                    modifier = Modifier.testTag("settings_fullscreen_alarm_allow_button")
+                                ) {
+                                    Text("Allow")
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Row(
@@ -458,7 +578,8 @@ fun SettingsScreen(
                             FilterChip(
                                 selected = prefs.reminderIntervalMinutes == mins,
                                 onClick = { viewModel.updateReminderInterval(mins) },
-                                label = { Text(label) }
+                                label = { Text(label) },
+                                modifier = Modifier.testTag("settings_interval_$mins")
                             )
                         }
                     }
