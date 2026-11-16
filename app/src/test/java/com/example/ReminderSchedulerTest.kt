@@ -152,20 +152,19 @@ class ReminderSchedulerTest {
         val initialTrigger = ReminderScheduler.getNextScheduledReminderMillis(context)
         assertNotNull(initialTrigger)
         assertEquals(1, shadowAlarm.scheduledAlarms.size)
-        assertNotNull(alarmManager.nextAlarmClock)
-        assertEquals(initialTrigger, alarmManager.nextAlarmClock?.triggerTime)
+        assertNull(alarmManager.nextAlarmClock)
 
         // Simulating app reopen (forceReschedule = false) keeps the exact same trigger time
         ReminderScheduler.syncReminders(context, prefs, forceReschedule = false)
         assertEquals(initialTrigger, ReminderScheduler.getNextScheduledReminderMillis(context))
 
-        // Enabling Ringing Alarm Mode keeps the same trigger time and AlarmClockInfo
+        // Enabling Ringing Alarm Mode keeps the same trigger time without adding an alarm icon to the status bar
         val ringingPrefs = prefs.copy(ringingReminderEnabled = true)
         ReminderScheduler.syncReminders(context, ringingPrefs, forceReschedule = false)
         assertEquals(initialTrigger, ReminderScheduler.getNextScheduledReminderMillis(context))
-        val alarmClock = alarmManager.nextAlarmClock
-        assertNotNull(alarmClock)
-        assertEquals(initialTrigger, alarmClock?.triggerTime)
+        assertEquals(1, shadowAlarm.scheduledAlarms.size)
+        assertEquals(initialTrigger, shadowAlarm.scheduledAlarms.first().triggerAtMs)
+        assertNull(alarmManager.nextAlarmClock)
 
         // Changing interval updates the scheduled trigger to the new interval (~15m)
         val beforeChange = System.currentTimeMillis()

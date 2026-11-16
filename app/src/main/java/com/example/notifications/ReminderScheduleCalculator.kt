@@ -63,14 +63,37 @@ object ReminderScheduleCalculator {
         timeZone: TimeZone = TimeZone.getDefault(),
         bedGraceMinutes: Int = 0
     ): Boolean {
-        val cal = Calendar.getInstance(timeZone).apply { timeInMillis = timestampMillis }
-        val currentMinutes = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
-        val wakeMinutes = wakeHour * 60 + wakeMinute
-        val bedMinutes = (bedHour * 60 + bedMinute + bedGraceMinutes.coerceAtLeast(0)) % (24 * 60)
-
         if (wakeHour == bedHour && wakeMinute == bedMinute) {
             return true
         }
+
+        if (isWithinExactWakingHours(timestampMillis, wakeHour, wakeMinute, bedHour, bedMinute, timeZone)) {
+            return true
+        }
+
+        val safeGrace = bedGraceMinutes.coerceAtLeast(0)
+        return safeGrace > 0 && isWithinExactWakingHours(
+            timestampMillis - safeGrace * 60_000L,
+            wakeHour,
+            wakeMinute,
+            bedHour,
+            bedMinute,
+            timeZone
+        )
+    }
+
+    private fun isWithinExactWakingHours(
+        timestampMillis: Long,
+        wakeHour: Int,
+        wakeMinute: Int,
+        bedHour: Int,
+        bedMinute: Int,
+        timeZone: TimeZone
+    ): Boolean {
+        val cal = Calendar.getInstance(timeZone).apply { timeInMillis = timestampMillis }
+        val currentMinutes = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+        val wakeMinutes = wakeHour * 60 + wakeMinute
+        val bedMinutes = bedHour * 60 + bedMinute
 
         return if (wakeMinutes <= bedMinutes) {
             currentMinutes in wakeMinutes..bedMinutes

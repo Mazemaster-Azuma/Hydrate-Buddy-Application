@@ -8,7 +8,6 @@ import android.os.Build
 import androidx.annotation.VisibleForTesting
 import androidx.core.app.AlarmManagerCompat
 import androidx.work.WorkManager
-import com.example.MainActivity
 import com.example.model.UserPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -42,7 +41,6 @@ object ReminderScheduler {
 
     private const val PERIODIC_REQUEST_CODE = 4101
     private const val SNOOZE_REQUEST_CODE = 4102
-    private const val SHOW_APP_REQUEST_CODE = 4103
 
     const val ACTION_TRIGGER_REMINDER = "com.example.ACTION_TRIGGER_REMINDER"
     const val ACTION_TRIGGER_SNOOZE = "com.example.ACTION_TRIGGER_SNOOZE"
@@ -398,32 +396,20 @@ object ReminderScheduler {
     ) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         val operation = createTriggerPendingIntent(context, requestCode, action)
-        val canExact = canScheduleExactAlarms(context)
+        // Clear any prior alarm (including any legacy setAlarmClock entry) before setting the new trigger
+        runCatching { alarmManager.cancel(operation) }
 
+        val canExact = canScheduleExactAlarms(context)
         val scheduledExact = if (canExact) {
-            // Primary: setAlarmClock is 100% exempt from Doze and OEM App Standby throttling on all Android versions
-            val scheduledAlarmClock = runCatching {
-                val showIntent = createShowAppPendingIntent(context)
-                alarmManager.setAlarmClock(
-                    AlarmManager.AlarmClockInfo(triggerAtMillis, showIntent),
+            runCatching {
+                AlarmManagerCompat.setExactAndAllowWhileIdle(
+                    alarmManager,
+                    AlarmManager.RTC_WAKEUP,
+                    triggerAtMillis,
                     operation
                 )
                 true
             }.getOrDefault(false)
-
-            if (scheduledAlarmClock) {
-                true
-            } else {
-                runCatching {
-                    AlarmManagerCompat.setExactAndAllowWhileIdle(
-                        alarmManager,
-                        AlarmManager.RTC_WAKEUP,
-                        triggerAtMillis,
-                        operation
-                    )
-                    true
-                }.getOrDefault(false)
-            }
         } else {
             false
         }
@@ -470,18 +456,6 @@ object ReminderScheduler {
         return PendingIntent.getBroadcast(
             context,
             requestCode,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-    }
-
-    private fun createShowAppPendingIntent(context: Context): PendingIntent {
-        val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        return PendingIntent.getActivity(
-            context,
-            SHOW_APP_REQUEST_CODE,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
